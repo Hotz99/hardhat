@@ -1,0 +1,39 @@
+{
+  "_format": "hh3-sol-build-info-1",
+  "id": "solc-0_8_28-7df9f3eb5cad6b22ab277c25a6df1fdf05e6ef5a",
+  "solcVersion": "0.8.28",
+  "solcLongVersion": "0.8.28+commit.7893614a",
+  "userSourceNameMap": {
+    "contracts/AuditLog.sol": "project/contracts/AuditLog.sol"
+  },
+  "input": {
+    "language": "Solidity",
+    "settings": {
+      "evmVersion": "cancun",
+      "optimizer": {
+        "enabled": true,
+        "runs": 200
+      },
+      "outputSelection": {
+        "*": {
+          "": [
+            "ast"
+          ],
+          "*": [
+            "abi",
+            "evm.bytecode",
+            "evm.deployedBytecode",
+            "evm.methodIdentifiers",
+            "metadata"
+          ]
+        }
+      },
+      "remappings": []
+    },
+    "sources": {
+      "project/contracts/AuditLog.sol": {
+        "content": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.19;\n\n/**\n * @title IAuditLog\n * @notice Minimal audit logging interface used by ConsentManager and CreditRegistry.\n * @dev Only exposes the stable interaction surface: authorization, logging, and read-only retrieval.\n * @dev Storage structures (arrays, mappings) remain in the implementation, not in the interface.\n */\ninterface IAuditLog {\n    enum EventType {\n        CONSENT_GRANTED,\n        CONSENT_REVOKED,\n        CONSENT_CHECKED,\n        IDENTITY_REGISTERED,\n        IDENTITY_UPDATED,\n        DATA_REQUEST_REJECTED\n    }\n\n    struct AuditEntry {\n        address accessorUserId;\n        address subjectUserId;\n        bytes32 hashedScope;\n        uint256 unixTimestamp;\n        EventType eventType;\n    }\n\n    // -------------------------\n    // Logging\n    // -------------------------\n\n    /**\n     * @notice Write a log entry.\n     * @dev Only authorized loggers (set by admin) may call this.\n     */\n    function logEvent(AuditEntry calldata entry) external;\n\n    // -------------------------\n    // Authorization\n    // -------------------------\n\n    /**\n     * @notice Check whether a given address is allowed to write audit entries.\n     */\n    function isAuthorizedLogger(address logger) external view returns (bool);\n\n    /**\n     * @notice Grant logging permission to a given address.\n     * @dev Only admin may call this.\n     */\n    function authorizeLogger(address logger) external;\n\n    /**\n     * @notice Revoke logging permission.\n     * @dev Only admin may call this.\n     */\n    function revokeLogger(address logger) external;\n\n    // -------------------------\n    // Read-Only Ops\n    // -------------------------\n\n    /**\n     * @notice Return a specific audit entry.\n     */\n    function getAuditEntry(uint256 entryId)\n        external\n        view\n        returns (AuditEntry memory);\n\n    /**\n     * @notice Return total number of log entries.\n     */\n    function getLogsCount() external view returns (uint256);\n\n    /**\n     * @notice Return all log indices associated with a subject (user).\n     */\n    function getAccessHistory(address user)\n        external\n        view\n        returns (uint256[] memory);\n\n    /**\n     * @notice Return all log indices associated with an accessor.\n     */\n    function getAccessorHistory(address accessor)\n        external\n        view\n        returns (uint256[] memory);\n\n    /**\n     * @notice Return a contiguous range of log entries.\n     */\n    function getAuditEntries(uint256 startId, uint256 count)\n        external\n        view\n        returns (AuditEntry[] memory);\n\n    /**\n     * @notice Return the last N log entries.\n     */\n    function getRecentLogs(uint256 count)\n        external\n        view\n        returns (AuditEntry[] memory);\n}\n\n/**\n * @title AuditLog\n * @notice Concrete implementation of IAuditLog for audit trail storage.\n */\ncontract AuditLog is IAuditLog {\n    address public admin;\n    AuditEntry[] private auditEntries;\n    \n    mapping(address => uint256[]) private subjectAccessHistory;\n    mapping(address => uint256[]) private accessorAccessHistory;\n    mapping(address => bool) private authorizedLoggers;\n    \n    event LoggerAuthorized(address indexed logger);\n    event LoggerRevoked(address indexed logger);\n    event AuditEntryLogged(uint256 indexed entryId, address indexed accessor, address indexed subject);\n    \n    error Unauthorized();\n    error InvalidRange();\n    \n    modifier onlyAdmin() {\n        require(msg.sender == admin, \"Only admin\");\n        _;\n    }\n    \n    modifier onlyAuthorizedLogger() {\n        if (!authorizedLoggers[msg.sender]) {\n            revert Unauthorized();\n        }\n        _;\n    }\n    \n    constructor() {\n        admin = msg.sender;\n        authorizedLoggers[msg.sender] = true;\n    }\n    \n    function logEvent(AuditEntry calldata entry) external onlyAuthorizedLogger {\n        uint256 entryId = auditEntries.length;\n        auditEntries.push(entry);\n        \n        subjectAccessHistory[entry.subjectUserId].push(entryId);\n        accessorAccessHistory[entry.accessorUserId].push(entryId);\n        \n        emit AuditEntryLogged(entryId, entry.accessorUserId, entry.subjectUserId);\n    }\n    \n    function isAuthorizedLogger(address logger) external view returns (bool) {\n        return authorizedLoggers[logger];\n    }\n    \n    function authorizeLogger(address logger) external onlyAdmin {\n        require(logger != address(0), \"Invalid logger address\");\n        authorizedLoggers[logger] = true;\n        emit LoggerAuthorized(logger);\n    }\n    \n    function revokeLogger(address logger) external onlyAdmin {\n        authorizedLoggers[logger] = false;\n        emit LoggerRevoked(logger);\n    }\n    \n    function getAuditEntry(uint256 entryId) external view returns (AuditEntry memory) {\n        require(entryId < auditEntries.length, \"Entry does not exist\");\n        return auditEntries[entryId];\n    }\n    \n    function getLogsCount() external view returns (uint256) {\n        return auditEntries.length;\n    }\n    \n    function getAccessHistory(address user) external view returns (uint256[] memory) {\n        return subjectAccessHistory[user];\n    }\n    \n    function getAccessorHistory(address accessor) external view returns (uint256[] memory) {\n        return accessorAccessHistory[accessor];\n    }\n    \n    function getAuditEntries(uint256 startId, uint256 count) external view returns (AuditEntry[] memory) {\n        if (startId >= auditEntries.length) {\n            revert InvalidRange();\n        }\n        \n        uint256 endId = startId + count;\n        if (endId > auditEntries.length) {\n            endId = auditEntries.length;\n        }\n        \n        uint256 resultCount = endId - startId;\n        AuditEntry[] memory result = new AuditEntry[](resultCount);\n        \n        for (uint256 i = 0; i < resultCount; i++) {\n            result[i] = auditEntries[startId + i];\n        }\n        \n        return result;\n    }\n    \n    function getRecentLogs(uint256 count) external view returns (AuditEntry[] memory) {\n        uint256 totalLogs = auditEntries.length;\n        if (totalLogs == 0) {\n            return new AuditEntry[](0);\n        }\n        \n        uint256 resultCount = count > totalLogs ? totalLogs : count;\n        uint256 startId = totalLogs - resultCount;\n        \n        AuditEntry[] memory result = new AuditEntry[](resultCount);\n        for (uint256 i = 0; i < resultCount; i++) {\n            result[i] = auditEntries[startId + i];\n        }\n        \n        return result;\n    }\n}\n"
+      }
+    }
+  }
+}
