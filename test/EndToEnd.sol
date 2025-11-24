@@ -9,7 +9,7 @@ import "../contracts/AuditLog.sol";
 /**
  * @title EndToEndTest
  * @notice Comprehensive end-to-end test validating the complete workflow
- * @dev Tests: deployment, registration, consent, queries, updates, and audit logging
+ * @dev Tests: deployment, registration, consent, revocation, queries, updates, and audit logging
  */
 contract EndToEndTest is Test {
     // Contracts
@@ -28,10 +28,33 @@ contract EndToEndTest is Test {
     string public debtRatioBracket = "20-40%";
     bytes32 public accountReferenceHash = keccak256("offchain-storage-pointer-123");
     bytes32[] public consentScopes;
+    bytes32 public scopeCreditScore = keccak256("credit_score");
     
+    // Events to check
+    event ConsentGranted(
+        bytes32 indexed consentId,
+        address indexed borrower,
+        address indexed lender,
+        bytes32[] scopes,
+        uint256 startBlockTime,
+        uint256 expiryBlockTime
+    );
+    
+    event ConsentRevoked(
+        bytes32 indexed consentId,
+        address indexed borrower,
+        address indexed lender
+    );
+    
+    event ConsentQueried(
+        bytes32 indexed consentId,
+        address indexed querier,
+        bool authorized
+    );
+
     function setUp() public {
         // Initialize consentScopes array
-        consentScopes.push(keccak256("credit_score"));
+        consentScopes.push(scopeCreditScore);
         
         // 1. Deploy ConsentManager
         consentManager = new ConsentManager();
@@ -55,7 +78,7 @@ contract EndToEndTest is Test {
     
     function test_EndToEndFlow() public {
         // -------------------------
-        // Step 2: Borrower registers on-chain
+        // Step 1: Borrower registers on-chain (Requirement 1)
         // -------------------------
         vm.startPrank(borrower);
         
@@ -99,7 +122,7 @@ contract EndToEndTest is Test {
         vm.stopPrank();
         
         // -------------------------
-        // Step 3: Lender queries public tiers (off-chain simulation)
+        // Step 2: Lender queries public tiers (off-chain simulation)
         // -------------------------
         // No consent required for public categorical values
         vm.startPrank(lender);
@@ -116,7 +139,7 @@ contract EndToEndTest is Test {
         vm.stopPrank();
         
         // -------------------------
-        // Step 4: Lender requests sensitive off-chain data (consent required)
+        // Step 3: Lender requests sensitive off-chain data (Requirement 2 & 4)
         // -------------------------
         vm.startPrank(borrower);
         
@@ -130,20 +153,21 @@ contract EndToEndTest is Test {
         // Lender verifies consent before accessing sensitive data
         vm.startPrank(lender);
         
-        bool isValid = consentManager.isConsentValid(consentId);
+        // Verify consent check emits event (Audit Logging of Access)
+        vm.expectEmit(true, true, false, true);
+        emit ConsentQueried(consentId, lender, true);
+        
+        bool isValid = consentManager.checkConsent(borrower, scopeCreditScore);
         assertTrue(isValid, "Consent should be valid");
         
         // After consent confirmed, lender can use account reference hash to fetch off-chain data
         bytes32 refHash = creditRegistry.getAccountReferenceHash(borrower);
         assertEq(refHash, accountReferenceHash, "Lender should retrieve account reference hash");
         
-        // In a real system, lender would now use refHash to query off-chain encrypted data
-        // This demonstrates the consent-gated access pattern
-        
         vm.stopPrank();
         
         // -------------------------
-        // Step 5: Borrower updates attributes
+        // Step 4: Borrower updates attributes
         // -------------------------
         vm.startPrank(borrower);
         
@@ -182,7 +206,7 @@ contract EndToEndTest is Test {
         vm.stopPrank();
         
         // -------------------------
-        // Step 6: Verify complete audit trail
+        // Step 5: Verify complete audit trail
         // -------------------------
         uint256[] memory borrowerHistory = auditLog.getAccessHistory(borrower);
         assertEq(borrowerHistory.length, 2, "Borrower should have 2 audit entries as subject");
@@ -192,6 +216,78 @@ contract EndToEndTest is Test {
         assertEq(allLogs.length, 2, "Should retrieve 2 recent logs");
         assertEq(uint256(allLogs[0].eventType), uint256(IAuditLog.EventType.IDENTITY_REGISTERED), "First log should be registration");
         assertEq(uint256(allLogs[1].eventType), uint256(IAuditLog.EventType.IDENTITY_UPDATED), "Second log should be update");
+    }
+    
+    // ============================================================
+    // TEST: Revocation Flow (Requirement 3)
+    // ============================================================
+    
+    function test_RevocationFlow() public {
+        vm.startPrank(borrower);
+        creditRegistry.registerIdentityAttributes(emailHash, creditTier, incomeBracket, debtRatioBracket, accountReferenceHash);
+        
+        // Grant consent
+        bytes32 consentId = consentManager.grantConsent(lender, consentScopes, 1 days);
+        vm.stopPrank();
+        
+        // Verify valid initially
+        vm.prank(lender);
+        assertTrue(consentManager.checkConsent(borrower, scopeCreditScore));
+        
+        // Revoke consent
+        vm.startPrank(borrower);
+        
+        vm.expectEmit(true, true, true, false);
+        emit ConsentRevoked(consentId, borrower, lender);
+        
+        consentManager.revokeConsentById(consentId);
+        vm.stopPrank();
+        
+        // Verify invalid after revocation
+        vm.prank(lender);
+        assertFalse(consentManager.checkConsent(borrower, scopeCreditScore));
+        
+        // Verify revocation via revokeAllConsents
+        vm.startPrank(borrower);
+        // Grant another consent
+        bytes32 consentId2 = consentManager.grantConsent(lender, consentScopes, 1 days);
+        vm.stopPrank();
+        
+        // Verify second consent is valid
+        assertTrue(consentManager.isConsentValid(consentId2), "Second consent should be valid before revokeAllConsents");
+        vm.prank(lender);
+        assertTrue(consentManager.checkConsent(borrower, scopeCreditScore), "Consent check should succeed before revokeAllConsents");
+        
+        // Revoke all consents
+        vm.prank(borrower);
+        consentManager.revokeAllConsents(lender);
+        
+        // Verify second consent is now invalid
+        assertFalse(consentManager.isConsentValid(consentId2), "Second consent should be invalid after revokeAllConsents");
+        vm.prank(lender);
+        assertFalse(consentManager.checkConsent(borrower, scopeCreditScore), "Consent check should fail after revokeAllConsents");
+    }
+    
+    // ============================================================
+    // TEST: Failed Access Logging (Requirement 4)
+    // ============================================================
+    
+    function test_FailedAccessLogging() public {
+        vm.startPrank(borrower);
+        creditRegistry.registerIdentityAttributes(emailHash, creditTier, incomeBracket, debtRatioBracket, accountReferenceHash);
+        vm.stopPrank();
+        
+        // Lender tries to access without consent
+        vm.startPrank(lender);
+        
+        // Expect ConsentQueried with authorized = false
+        vm.expectEmit(true, true, false, true);
+        emit ConsentQueried(bytes32(0), lender, false);
+        
+        bool isAuthorized = consentManager.checkConsent(borrower, scopeCreditScore);
+        assertFalse(isAuthorized, "Should not be authorized");
+        
+        vm.stopPrank();
     }
     
     // ============================================================

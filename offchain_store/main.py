@@ -10,9 +10,6 @@ class FinancialRecord:
     payload: str
 
 
-# ------------------------------------------------------------
-# Off-Chain Store
-# ------------------------------------------------------------
 class OffChainStore:
     def __init__(self, rpc_url, consent_manager_address, consent_manager_abi):
         self.web3 = Web3(Web3.HTTPProvider(rpc_url))
@@ -20,11 +17,9 @@ class OffChainStore:
             address=Web3.to_checksum_address(consent_manager_address),
             abi=consent_manager_abi
         )
-        self.records = {}  # (borrower, scope) -> FinancialRecord
+        # (borrower, hashedScope) -> FinancialRecord
+        self.records = {}  
 
-    # --------------------------------------------------------
-    # Register off-chain encrypted or raw financial data
-    # --------------------------------------------------------
     def register_record(self, borrower, scope_bytes32, payload):
         key = (borrower.lower(), scope_bytes32)
         self.records[key] = FinancialRecord(
@@ -34,7 +29,7 @@ class OffChainStore:
         )
 
     # --------------------------------------------------------
-    # Core workflow: lender fetch
+    # core workflow (from `docs/report.md`): lender fetch
     # 1. lender calls OffChainStore
     # 2. store calls ConsentManager.checkConsent
     # 3. valid/invalid returned
@@ -72,11 +67,10 @@ class OffChainStore:
             return None
 
 
-# ------------------------------------------------------------
-# Example usage
-# ------------------------------------------------------------
 if __name__ == "__main__":
     RPC = "http://127.0.0.1:8545"
+    # TODO dynamically derive contract address & ABI after deployment
+    # instead of hardcoding
     CONSENT_MANAGER_ADDR = "0x5FbDB2315678afecb367f032d93F642f64180aa3"
 
     with open("../artifacts/contracts/ConsentManager.sol/ConsentManager.json") as abi_file:
@@ -88,46 +82,49 @@ if __name__ == "__main__":
         consent_manager_abi=CONSENT_MANAGER_ABI
     )
 
-    # from `npx hardhat node`
+    # keys from `npx hardhat node`
     borrower_pubkey = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
     borrower_privkey = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 
     lender_pubkey = "0x70997970c51812dc3a010c7d01b50e0d17dc79c8"
     lender_privkey = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
     
-    hashed_scope = Web3.keccak(text="credit_score")
+    hashed_identity_attribute = Web3.keccak(text="credit_score")
 
     print("=== Step 1: Register off-chain record ===")
-    # Register off-chain record
+    
     store.register_record(
         borrower=borrower_pubkey,
-        scope_bytes32=hashed_scope,
+        scope_bytes32=hashed_identity_attribute,
         payload="RAW{credit_score:720,income:90000,debt_ratio:0.18}"
     )
     print(f"Registered record for borrower {borrower_pubkey}")
 
     print("\n=== Step 2: Attempt fetch WITHOUT consent ===")
-    # Attempt fetch without consent
-    result = store.fetch(lender_pubkey, borrower_pubkey, hashed_scope)
-    print("DATA:", result)   # None → no consent granted yet
+    
+    # attempt fetch without consent
+    result = store.fetch(lender_pubkey, borrower_pubkey, hashed_identity_attribute)
+    # `result == None` bc no consent granted yet
+    print("DATA:", result)   
     
     print("\n=== Step 3: Grant consent on-chain ===")
-    # Grant consent from borrower to lender
+    # grant consent from borrower to lender
     w3 = store.web3
     borrower_account = w3.eth.account.from_key(borrower_privkey)
     
-    # Build transaction to grant consent
+    # build tx to grant consent from borrower to lender
     consent_manager = store.cm
     borrower_checksum = Web3.to_checksum_address(borrower_pubkey)
     lender_checksum = Web3.to_checksum_address(lender_pubkey)
     nonce = w3.eth.get_transaction_count(borrower_checksum)
     
-    # Grant consent for 7 days
+    # grant consent for 7 days
     duration_seconds = 7 * 24 * 60 * 60
     
     tx = consent_manager.functions.grantConsent(
         lender_checksum,
-        [hashed_scope],  # scopes array
+        # array of scopes
+        [hashed_identity_attribute],
         duration_seconds
     ).build_transaction({
         'from': borrower_checksum,
@@ -144,6 +141,7 @@ if __name__ == "__main__":
     print(f"Status: {'Success' if receipt.status == 1 else 'Failed'}")
     
     print("\n=== Step 4: Attempt fetch WITH consent ===")
-    # Attempt fetch with consent
-    result = store.fetch(lender_pubkey, borrower_pubkey, hashed_scope)
-    print("DATA:", result)   # Should return the payload now
+    # attempt fetch with consent
+    result = store.fetch(lender_pubkey, borrower_pubkey, hashed_identity_attribute)
+    # should return raw data now
+    print("DATA:", result)
