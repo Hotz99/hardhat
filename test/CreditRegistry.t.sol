@@ -277,7 +277,7 @@ contract CreditRegistryTest is Test {
         uint256 durationSeconds = 1 days;
 
         vm.prank(borrower);
-        bytes32 consentId = consentManager.grantConsent(lender, scopes, durationSeconds);
+        uint256 consentId = consentManager.grantConsent(lender, scopes, durationSeconds);
 
         // Step 3: ConsentManager creates consent struct and stores it
         (

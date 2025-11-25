@@ -32,7 +32,7 @@ contract EndToEndTest is Test {
     
     // Events to check
     event ConsentGranted(
-        bytes32 indexed consentId,
+        uint256 indexed consentId,
         address indexed borrower,
         address indexed lender,
         bytes32[] scopes,
@@ -41,13 +41,13 @@ contract EndToEndTest is Test {
     );
     
     event ConsentRevoked(
-        bytes32 indexed consentId,
+        uint256 indexed consentId,
         address indexed borrower,
         address indexed lender
     );
     
     event ConsentQueried(
-        bytes32 indexed consentId,
+        uint256 indexed consentId,
         address indexed querier,
         bool authorized
     );
@@ -145,8 +145,8 @@ contract EndToEndTest is Test {
         
         // Borrower grants consent to lender
         uint256 consentDuration = 7 days;
-        bytes32 consentId = consentManager.grantConsent(lender, consentScopes, consentDuration);
-        assertTrue(consentId != bytes32(0), "Consent ID should be generated");
+        uint256 consentId = consentManager.grantConsent(lender, consentScopes, consentDuration);
+        assertTrue(consentId != uint256(0), "Consent ID should be generated");
         
         vm.stopPrank();
         
@@ -227,7 +227,7 @@ contract EndToEndTest is Test {
         creditRegistry.registerIdentityAttributes(emailHash, creditTier, incomeBracket, debtRatioBracket, accountReferenceHash);
         
         // Grant consent
-        bytes32 consentId = consentManager.grantConsent(lender, consentScopes, 1 days);
+        uint256 consentId = consentManager.grantConsent(lender, consentScopes, 1 days);
         vm.stopPrank();
         
         // Verify valid initially
@@ -250,7 +250,7 @@ contract EndToEndTest is Test {
         // Verify revocation via revokeAllConsents
         vm.startPrank(borrower);
         // Grant another consent
-        bytes32 consentId2 = consentManager.grantConsent(lender, consentScopes, 1 days);
+        uint256 consentId2 = consentManager.grantConsent(lender, consentScopes, 1 days);
         vm.stopPrank();
         
         // Verify second consent is valid
@@ -282,7 +282,7 @@ contract EndToEndTest is Test {
         
         // Expect ConsentQueried with authorized = false
         vm.expectEmit(true, true, false, true);
-        emit ConsentQueried(bytes32(0), lender, false);
+        emit ConsentQueried(uint256(0), lender, false);
         
         bool isAuthorized = consentManager.checkConsent(borrower, scopeCreditScore);
         assertFalse(isAuthorized, "Should not be authorized");
@@ -347,7 +347,7 @@ contract EndToEndTest is Test {
         
         // Grant short-duration consent
         uint256 shortDuration = 1 hours;
-        bytes32 consentId = consentManager.grantConsent(lender, consentScopes, shortDuration);
+        uint256 consentId = consentManager.grantConsent(lender, consentScopes, shortDuration);
         vm.stopPrank();
         
         // Consent valid initially

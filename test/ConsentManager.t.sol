@@ -31,6 +31,28 @@ contract ConsentManagerTest is Test {
         // locally "deploy" contract
         consentManager = new ConsentManager();
     }
+
+    // ============================================
+    // SANITY CHECK: CONSENT LIST
+    // ============================================
+
+    // function test_SanityCheckConsentList() public {
+    //     // 1. Borrower signs transaction calling grantConsent
+    //     vm.startPrank(borrower);
+    //     bytes32[] memory hashedScopes = new bytes32[](2);
+    //     hashedScopes[0] = scopeCreditScore;
+    //     hashedScopes[1] = scopeIncome;
+        
+    //     uint256 consentId = consentManager.grantConsent(lender, hashedScopes, ONE_DAY);
+    //     uint256 consent1Id = consentManager.grantConsent(lender, hashedScopes, 1 weeks);
+        
+    //     vm.stopPrank();
+        
+    //     require(consentId == uint256(0), "ConsentId should be generated");
+    //     require(consent1Id == uint256(1), "ConsentId should be generated");
+    //     require(consentManager.getConsentCount() == uint(2), "Grants not being created correctly");
+    // }
+
     
     // ============================================
     // WORKFLOW: CONSENT GRANT
@@ -43,7 +65,8 @@ contract ConsentManagerTest is Test {
         hashedScopes[0] = scopeCreditScore;
         hashedScopes[1] = scopeIncome;
         
-        bytes32 consentId = consentManager.grantConsent(lender, hashedScopes, ONE_DAY);
+        uint256 consentId = consentManager.grantConsent(lender, hashedScopes, ONE_DAY);
+        
         vm.stopPrank();
         
         // 2. Verify ConsentManager created consent struct with correct fields
@@ -65,7 +88,7 @@ contract ConsentManagerTest is Test {
         require(!isRevoked, "Should not be revoked initially");
         
         // 3. Verify consent stored under consentId (hash of fields)
-        require(consentId != bytes32(0), "ConsentId should be generated");
+        require(consentId == uint256(0), "ConsentId should be index 0 of array");
         require(consentManager.isConsentValid(consentId), "Consent should be valid");
     }
     
@@ -113,7 +136,7 @@ contract ConsentManagerTest is Test {
         vm.startPrank(borrower);
         bytes32[] memory hashedScopes = new bytes32[](1);
         hashedScopes[0] = scopeCreditScore;
-        bytes32 consentId = consentManager.grantConsent(lender, hashedScopes, ONE_DAY);
+        uint256 consentId = consentManager.grantConsent(lender, hashedScopes, ONE_DAY);
         
         // Verify consent is initially valid
         require(consentManager.isConsentValid(consentId), "Consent should be valid initially");
@@ -145,7 +168,7 @@ contract ConsentManagerTest is Test {
         bytes32[] memory hashedScopes = new bytes32[](2);
         hashedScopes[0] = scopeCreditScore;
         hashedScopes[1] = scopeIncome;
-        bytes32 consentId = consentManager.grantConsent(lender, hashedScopes, ONE_DAY);
+        uint256 consentId = consentManager.grantConsent(lender, hashedScopes, ONE_DAY);
         vm.stopPrank();
         
         // 2. Verify consent is valid
@@ -209,7 +232,7 @@ contract ConsentManagerTest is Test {
         vm.startPrank(borrower);
         bytes32[] memory hashedScopes = new bytes32[](1);
         hashedScopes[0] = scopeCreditScore;
-        bytes32 consentId = consentManager.grantConsent(lender, hashedScopes, ONE_DAY);
+        uint256 consentId = consentManager.grantConsent(lender, hashedScopes, ONE_DAY);
         vm.stopPrank();
         
         // Consent should be valid initially
@@ -233,15 +256,15 @@ contract ConsentManagerTest is Test {
         
         bytes32[] memory scopes1 = new bytes32[](1);
         scopes1[0] = scopeCreditScore;
-        bytes32 consentId1 = consentManager.grantConsent(lender, scopes1, ONE_DAY);
+        uint256 consentId1 = consentManager.grantConsent(lender, scopes1, ONE_DAY);
         
         bytes32[] memory scopes2 = new bytes32[](1);
         scopes2[0] = scopeIncome;
-        bytes32 consentId2 = consentManager.grantConsent(lender, scopes2, ONE_WEEK);
+        uint256 consentId2 = consentManager.grantConsent(lender, scopes2, ONE_WEEK);
         
         bytes32[] memory scopes3 = new bytes32[](1);
         scopes3[0] = scopeEmployment;
-        bytes32 consentId3 = consentManager.grantConsent(lender, scopes3, ONE_DAY);
+        uint256 consentId3 = consentManager.grantConsent(lender, scopes3, ONE_DAY);
         
         vm.stopPrank();
         
@@ -250,7 +273,7 @@ contract ConsentManagerTest is Test {
         require(consentId2 != consentId3, "Consent IDs should be unique");
         require(consentId1 != consentId3, "Consent IDs should be unique");
         
-        (bytes32[] memory consentIds) = consentManager.getBorrowerConsents(borrower);
+        (uint256[] memory consentIds) = consentManager.getBorrowerConsents(borrower);
         require(consentIds.length == 3, "Should have 3 consents");
         
         // Revoke all consents to this lender
@@ -265,4 +288,50 @@ contract ConsentManagerTest is Test {
         require(!consentManager.checkConsent(borrower, scopeEmployment), "Should be revoked");
         vm.stopPrank();
     }
+
+    // ============================================
+    // PROFILING: LARGE SCALE GRANT CREATION
+    // ============================================ 
+    function test_LargeScaleGrantCreation() public {
+        for (uint256 foo=0; foo < 3; foo++) {
+            for (uint256 i = 1; i < 51; i++) {
+                for (uint256 j = 1; j < 51; j++) {
+                    if (i == j) {
+                        continue;
+                    }
+
+                    address _borrower = address(uint160(uint(keccak256(abi.encodePacked(i)))));
+                    address _lender = address(uint160(uint(keccak256(abi.encodePacked(j)))));
+
+                    vm.startPrank(_borrower);
+
+                    // address _lender = address(j);
+                
+                    bytes32[] memory scopes1 = new bytes32[](1);
+                    scopes1[0] = scopeCreditScore;
+                    uint256 consentId1 = consentManager.grantConsent(_lender, scopes1, ONE_DAY);
+                    
+                    bytes32[] memory scopes2 = new bytes32[](1);
+                    scopes2[0] = scopeIncome;
+                    uint256 consentId2 = consentManager.grantConsent(_lender, scopes2, ONE_WEEK);
+                    
+                    bytes32[] memory scopes3 = new bytes32[](1);
+                    scopes3[0] = scopeEmployment;
+                    uint256 consentId3 = consentManager.grantConsent(_lender, scopes3, ONE_DAY);
+                    
+                    vm.stopPrank();
+                }
+            }
+        }
+
+       for (int i = 1; i < 51; i++) {
+            address _borrower = address(uint160(uint(keccak256(abi.encodePacked(i)))));
+            (uint256[] memory consentIds) = consentManager.getBorrowerConsents(_borrower);            
+            require(consentIds.length > 0);
+        } 
+
+        require(consentManager.getConsentCount() > 9000, "Not enough grants created!");
+    }
+
+
 }
