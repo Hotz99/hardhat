@@ -52,7 +52,8 @@ contract ConsentManagerTest is Test {
             address storedLender,
             uint256 startTime,
             uint256 expiryTime,
-            bool isRevoked
+            bool isRevoked,
+            bool isValue
         ) = consentManager.consents(consentId);
         
         require(storedBorrower == borrower, "Borrower should match");
@@ -123,7 +124,7 @@ contract ConsentManagerTest is Test {
         vm.stopPrank();
         
         // 2. Verify ConsentManager set revoked field to true
-        (, , , , bool revoked) = consentManager.consents(consentId);
+        (, , , , bool revoked,) = consentManager.consents(consentId);
         require(revoked, "Consent revoked field should be true");
         
         // 3. Subsequent checks resolve to invalid
@@ -133,6 +134,27 @@ contract ConsentManagerTest is Test {
         bool checkResult = consentManager.checkConsent(borrower, scopeCreditScore);
         vm.stopPrank();
         require(!checkResult, "checkConsent should return false after revocation");
+    }
+
+    // ============================================
+    // WORKFLOW: DUPLICATE PREVENTION
+    // ============================================
+    function test_DuplicatePrevention() public {
+        bytes32[] memory scopes1 = new bytes32[](1);
+        scopes1[0] = scopeCreditScore;
+
+        vm.startPrank(borrower);
+        bytes32 consentId = consentManager.grantConsent(lender, scopes1, ONE_DAY);
+
+        // this should fail
+        vm.expectRevert(bytes("Consent already exists"));
+        bytes32 consentId2 = consentManager.grantConsent(lender, scopes1, ONE_DAY);
+
+        (bytes32[] memory consentIds) = consentManager.getBorrowerConsents(borrower);
+        require(consentIds.length == 1);
+
+        vm.stopPrank();
+
     }
     
     // ============================================
