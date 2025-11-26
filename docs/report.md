@@ -2,29 +2,13 @@
 
 ## Problem Statement
 
-Centralized credit reporting systems create significant privacy risks and lack user control. Users are often unaware of who accesses their financial data, and massive data breaches frequently compromise sensitive personal information. Furthermore, users cannot easily revoke access once granted, and there is no immutable, transparent record of data access. This project aims to build a blockchain-based decentralized identity and data sharing platform for the financial domain, specifically for creditworthiness verification, where users retain ownership of their data and control access through revocable, auditable consents.
-
-## Users and Roles
-
-The system defines the following roles:
-
-- **User (Borrower/Identity Owner):** The individual who owns the data and the digital identity. They initiate registration, upload off-chain data, and manage consent settings (granting and revoking access).
-- **Requester (Lender):** The entity (e.g., a bank or financial service) that requests access to the user's credit data to verify creditworthiness. They must obtain valid consent before accessing any off-chain information.
-- **Administrator:** Responsible for the initial deployment and configuration of the smart contracts.
-
-## Functional Requirements
-
-To address the problem statement, the system implements the following core functions:
-
-1.  **User Registration:** Users can register a digital identity using hashed attributes (e.g., email hash) to ensure privacy while maintaining uniqueness.
-2.  **Consent Management:** Users can grant granular, time-limited consent to specific Requesters for specific ~~data types~~ **identity attributes** (scopes).
-3.  **Consent Revocation:** Users have the ability to revoke previously granted consents at any time, immediately invalidating further access.
-4.  **Audit Logging:** Every access attempt to the off-chain data is logged on-chain. This includes both successful accesses (authorized) and failed attempts (unauthorized), creating an immutable audit trail.
-5.  **(TODO implement this) Incentivization:** The system includes a mechanism to reward users with tokens when they grant consent for data sharing.
-
-## System Overview
-
-The platform operates on a hybrid model separating verification from data storage. Users register on-chain with hashed attributes while keeping sensitive financial data off-chain. When a Lender needs verification, the User grants specific on-chain consent. The Lender then requests data from the off-chain store, which verifies the consent against the blockchain before releasing data. All access events are immutably logged.
+Centralized credit reporting systems create significant privacy risks and lack user control. Users are often unaware of who accesses their financial data, and massive data breaches frequently compromise sensitive personal information. Furthermore, users cannot easily revoke access once granted, and there is no immutable, transparent record of data access. We provide a blockchain-based decentralized identity and data sharing platform for the financial domain, specifically for creditworthiness verification, where users retain ownership of their data and control access through revocable, auditable consents. Partner banks would be responsible for initial
+customer
+identity verification and patrimony assessment (which they already do). They
+would then register their verified customers onto our system, delegating
+only
+the consent management and access control functions to our blockchain
+infrastructure while maintaining their trusted role as financial evaluators.
 
 ## Proposed Solution
 
@@ -39,6 +23,96 @@ The chain anchors:
 - proof that a particular requester accessed it
 
 The score itself remains off-chain, or is revealed only to a requesting lender through zero-knowledge proofs or verifiable access events.
+
+### Banking Partnership & Value Proposition
+
+**Our foundational premise:** Society operates on trust in established banking
+institutions to accurately evaluate patrimony and track asset ownership.
+Banks
+are financially incentivized to maintain this trust—their credibility
+directly
+translates to their competitive position and profitability. This creates a
+natural alignment of interests.
+
+**Our partnership model:** Rather than competing with banks, we position
+ourselves
+as an infrastructure provider. We would partner with established,
+well-regarded
+banking institutions to onboard their existing customer base onto our
+platform
+
+### Why banks would adopt our system
+
+- Transparency attracts clients
+  Our blockchain-based system offers complete mechanical transparency—every consent grant, revocation, and access
+  attempt is immutably logged and auditable. In an era of increasing data
+  breach concerns and privacy regulations, this transparency becomes a
+  competitive differentiator for partner banks.
+- Enhanced customer trust: By offering verifiable proof that customer data
+  is accessed only with explicit, time-bound consent, banks can strengthen
+  their relationship with privacy-conscious customers.
+- Complementary services, not competition: We provide credit verification
+  infrastructure, not banking services. Banks retain their core
+  business—lending, accounts, financial products—while outsourcing the consent
+  management and audit trail to our decentralized platform.
+- Regulatory compliance advantage: An immutable audit trail of all data
+  access events simplifies compliance with data protection regulations (GDPR,
+  CCPA, etc.) and provides verifiable proof of proper data handling in case of audits.
+
+### The delegation model: Why Banks Should Be the Onboarding Authority
+
+Making a trusted bank the initial registration authority leverages their existing, legally mandated processes and solves a critical problem for a decentralized system: The Oracle Problem (how to get trusted real-world data/identity onto the blockchain).
+
+1. Identity Verification (KYC/AML)
+
+Banks are legally required to perform KYC (Know Your Customer) and AML (Anti-Money Laundering) checks to establish a verified, real-world identity for every account holder.
+
+By delegating onboarding to the bank, we automatically inherit a vetted identity.
+
+2. Patrimony Assessment & Credit Context
+
+The bank is the source of the high-quality, verified financial data (patrimony, income, account history) that forms the basis for lending decisions.
+
+The act of the bank registering the user signals that the user has a verified financial relationship and a pre-existing level of financial trust. This is the trusted context needed for our credit verification platform.
+
+3. Regulatory Compliance & Risk Mitigation
+
+## System Roles
+
+**User (Borrower/Identity Owner)**
+
+- Individual who owns the data and the digital identity.
+- Cannot directly initiate registration; are registered by a Partner Bank after KYC/patrimony vetting.
+- Manages consent settings (granting and revoking access to their data).
+
+**Partner Bank (Onboarding & Requester Authority)**
+
+- Established financial institution acting as both the initial identity validator and potential data requester.
+- Performs the initial customer identity verification and patrimony assessment (KYC/AML); uses a dedicated account to register the User's unique (but pseudonymous) ID onto the platform.
+- Acts as a Lender that requests access to a User's data to verify creditworthiness, which requires obtaining valid consent.
+
+**Requester (Third-Party Lender)**
+Any other entity (e.g., a non-partner financial service, small lender) that requests access to the User's data. They must obtain valid consent before accessing any information and have no onboarding authority.
+
+**Administrator**
+Responsible for initial deployment and configuration of smart contracts and technical setup of all Partner Bank/Requester accounts.
+
+## Functional Requirements
+
+1. **User Registration:** Users can register a digital identity using hashed attributes (e.g., email hash) to ensure privacy while maintaining uniqueness.
+2. **Consent Management:** Users can grant granular, time-limited consent to specific Requesters for specific ~~data types~~ **identity attributes** (scopes).
+3. **Consent Revocation:** Users have the ability to revoke previously granted consents at any time, immediately invalidating further access.
+4. **Audit Logging:** Every access attempt to the off-chain data is logged on-chain. This includes both successful accesses (authorized) and failed attempts (unauthorized), creating an immutable audit trail.
+5. **(TODO vet this) Incentivization:** The system includes a mechanism to reward users with tokens when they grant consent for data sharing.
+
+## System Overview: High Level User-System Interaction
+
+Our platform empowers users with sovereign control over their financial identity through a hybrid architecture that bridges trusted banking with decentralized privacy.
+
+- **Trusted Onboarding**: Partner Banks verify users via existing KYC processes and register them on-chain, ensuring high-quality identity without exposing raw data.
+- **Granular Consent**: Users explicitly grant or revoke time-bound access to Lenders, ensuring data is only shared with permission.
+- **Privacy-Preserving Verification**: Lenders verify creditworthiness through the blockchain, which enforces consent checks before releasing off-chain data.
+- **Immutable Audit**: All consent changes and access attempts are permanently logged, guaranteeing transparency and accountability.
 
 ## Identity Attributes
 
@@ -148,6 +222,8 @@ Chain stores verifiable commitments; off-chain system stores the data itself.
 # Consent Model
 
 **"Call"**: an externally owned account or contract executes a message call targeting a contract function.
+
+<!-- TODO vet this account for the initial onboarding done by banks -->
 
 ## Workflow: Consent Grant
 
