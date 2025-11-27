@@ -136,7 +136,16 @@ Chain stores verifiable commitments; off-chain system stores the data itself.
 
 # Consent Model
 
-**"Call"**: an externally owned account or contract executes a message call targeting a contract function.
+> **"Call"**: an externally owned account or contract executes a message call targeting a contract function.
+
+## **Workflow: Bank-Verified User Registration**
+
+1. **Bank Verifies Identity & Patrimony:** The **Partner Bank** completes the required legal (KYC/AML) and financial (patrimony assessment) verification for the user.
+2. **Bank Prepares ID Data:** The **Partner Bank's** approved system account prepares a transaction containing the **User's pseudonymous ID** (e.g., a hash of a unique bank ID) and a timestamp.
+3. **Bank Calls Registration:** The **Partner Bank** signs a transaction calling the platform's IdentityManager contract: registerUser(bankID, pseudonym)
+4. **IdentityManager Creates Record:** The IdentityManager contract creates an immutable UserIdentity struct containing: {pseudonym, bankID, registrationTimestamp, onboardingAuthority: bankAddress}.
+5. **IdentityManager Stores ID:** The contract stores this struct and maps the **pseudonym** to the **User's address**, effectively creating the **verified digital identity** on the platform.
+6. **User Profile Activation:** The **User** is notified, and their wallet address is now recognized by the platform as a **verified identity**, ready to manage consent.
 
 ## Workflow: Consent Grant
 
@@ -170,9 +179,13 @@ The test suite validates all core platform functionality using Foundry's Solidit
 | EndToEnd.sol         |       4       |       3       |   7    |
 | **Total**            |    **33**     |     **4**     | **37** |
 
+<!-- TODO are log assertions valid in test context ? intuitively, `log` emission will be non-deterministic if we do not await for emission ? -->
+
 > **Note:** The 4 failing tests are related to event emission assertions (`log != expected log`), not functional failures.
 
 ## Tested Functionality and Design Rationale
+
+<!-- TODO should we remove 'description' column from all tables below to reduce verbosity ? -->
 
 ### Identity Registration Tests
 
@@ -257,9 +270,13 @@ The test suite validates all core platform functionality using Foundry's Solidit
 
 # Deployment
 
+## Instructions
+
+For detailed setup and deployment instructions, please refer to the [project's main README file](../README.md). The following sections provide a summary of gas usage and cost analysis based on those instructions.
+
 ## Gas Usage Statistics
 
-The below metrics were collected from profiling tests using `npx hardhat test --gas-stats`. The large-scale test simulates **50 users** interacting with **50 lenders**, creating approximately **7,350 consent grants**, **2,450 consent checks**, and **7,350 revocations**.
+The below metrics were collected from profiling tests using `bunx hardhat test --gas-stats`. The large-scale test simulates **50 users** interacting with **50 lenders**, creating approximately **7,350 consent grants**, **2,450 consent checks**, and **7,350 revocations**.
 
 ### Contract Deployment Costs
 
