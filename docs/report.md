@@ -24,7 +24,7 @@ To address the problem statement, the system implements the following core funct
 
 ## System Overview
 
-The platform operates on a hybrid model separating verification from data storage. Users register on-chain with hashed attributes while keeping sensitive financial data off-chain. When a Lender needs verification, the User grants specific on-chain consent. The Lender then requests data from the off-chain store, which verifies the consent against the blockchain before releasing data. All access events are immutably logged.
+We implemented a hybrid model separating verification from data storage. Users are registered on-chain with hashed attributes while keeping sensitive financial data off-chain. When a Lender needs verification, the User grants on-chain consent. The Lender then requests data from the off-chain store, which verifies the consent against the blockchain before serving data. All access events are immutably logged.
 
 ## Proposed Solution
 
@@ -53,26 +53,22 @@ Necessary attributes follow directly from the functional requirements:
 - enable lenders to verify credit tier without exposing raw financial data
 - immutable access control to off-chain data:
 
-Off-chain data must be stored in a controlled environment that implements access gates tied to the on-chain consent state. The chain does not enforce access to arbitrary third-party assets; it enforces access to a storage layer designed to honor its signals.
-
 ### Concerns
 
 #### Re‑identifiability
 
 A user becomes re‑identifiable when a data point—alone or combined with other attributes—lets an observer infer who the user is, even if the data is hashed or partially anonymized. High‑precision numerical credit scores act as quasi‑identifiers because they are statistically sparse. A specific score (e.g. 742) appears in far fewer real‑world profiles than a broad tier like “Good” or "A", making it easier to match to external datasets or leaked credit bureau records.
 
-#### Data exposure risk
+#### Data Exposure Risk
 
 A system leaks information when an observer can derive sensitive facts from values stored or inferred on-chain. Numerical credit scores directly encode financial behavior patterns and can be correlated with income, debt ratios, or default probability. Even if hashed, the low entropy of a limited range (300–850) allows brute‑force reversal and reconstruction of the exact score. Once reversed, the chain becomes a public broadcast of an individual’s private financial state.
 
-#### Why these matter despite wanting transparency
+#### Why These Matter Despite Wanting Transparency
 
 Transparency of _mechanics_ (how scoring works, how consent is enforced, how access is logged) does not require transparency of _raw personal metrics_. Public blockchains expose all state permanently. A transparent, immutable audit of _who accessed what_ is desirable; a transparent broadcast of every user’s precise credit score is not.
 
-Using categorical tiers preserves transparency of process and validation while constraining what an adversary can infer. It eliminates brute‑force reversibility and prevents unique financial fingerprints from being tied to on-chain identities.
-
-Low entropy of fine-grained categories becomes a security problem only when the value is **small enough to brute-force and uniquely identifying when recovered**.
-Numerical credit scores (300–850) fit this pattern:
+Low entropy of fine-grained categories becomes a security problem when the value is **small enough to brute-force and uniquely identifying when recovered**.
+Our initial idea of numerical credit scores (300–850) fit this pattern:
 
 - The search space is tiny
 - A recovered score is highly specific to one individual
@@ -94,10 +90,9 @@ Only categorical tiers and hashed commitments are stored on-chain. The tier rest
 #### Category (on-chain, readable)
 
 - Tells the public _“this user is in bracket X.”_
-- Communicates minimal information
+- Useful for lenders, analytics, and quick on-chain policy checks (e.g., eligibility)
 - Not cryptographically tied to the real score
-- Cannot prevent a user from later changing the off-chain score they show to different lenders
-- Cannot prove integrity across time
+- Cannot prove integrity across time: a user may later change the off-chain score they show to different lenders
 
 #### Hash commitment (on-chain, opaque)
 
@@ -125,12 +120,6 @@ Only categorical tiers and hashed commitments are stored on-chain. The tier rest
 Opaque on-chain data (hashes) exists to ensure integrity, not readability.
 A hash on-chain proves the off-chain value existed, was unaltered, and was bound to a specific identity and consent state at a specific time.
 It enables verifiable access control and auditability without exposing the underlying financial details.
-
-// TODO below seems a bit redundant
-
-Categories are intentionally coarse and high-cardinality is low — brute force reversal of a hashed category is trivial, so hashing them doesn't hide anything.
-Readable categories are useful for lenders, analytics, and quick on-chain policy checks (e.g., eligibility).
-Hashes should bind off-chain, high-entropy or sensitive values (raw score, detailed financial records, account refs, and email/contact) to prevent tampering while keeping data private. Use salts/nonces, timestamps, or a Merkle root to prevent replay/brute-force and to tie a commitment to a specific user/time.
 
 Chain stores verifiable commitments; off-chain system stores the data itself.
 
@@ -167,3 +156,180 @@ Chain stores verifiable commitments; off-chain system stores the data itself.
 1. borrower signs a transaction calling `revokeAllConsentslender)`
 2. `ConsentManager` resolves instance with `consentId` & sets the `revoked` field to `true`
 3. subsequent checks for `consents[consentId]` resolve to `invalid`
+
+# Testing
+
+The test suite validates all core platform functionality using Foundry's Solidity testing framework. Tests are organized into three files covering unit tests, integration tests, and end-to-end workflows.
+
+## Test Summary
+
+| Test Suite           | Tests Passing | Tests Failing | Total  |
+| -------------------- | :-----------: | :-----------: | :----: |
+| ConsentManager.t.sol |      10       |       0       |   10   |
+| CreditRegistry.t.sol |      19       |       1       |   20   |
+| EndToEnd.sol         |       4       |       3       |   7    |
+| **Total**            |    **33**     |     **4**     | **37** |
+
+> **Note:** The 4 failing tests are related to event emission assertions (`log != expected log`), not functional failures.
+
+## Tested Functionality and Design Rationale
+
+### Identity Registration Tests
+
+| Test                                                     | Description                                                                                             | Why Critical                                                                                         |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `test_RegisterIdentityAttributesSuccessfully`            | Verifies users can register with hashed email, credit tier, income/debt brackets, and account reference | Core requirement: users must establish on-chain identity before participating in the consent system  |
+| `test_RevertDuplicateRegistration`                       | Prevents same address from registering twice                                                            | Ensures identity uniqueness; prevents Sybil attacks and duplicate identity claims                    |
+| `test_RevertRegistrationWithInvalidEmailHash`            | Rejects zero-hash email                                                                                 | Enforces data integrity; email hash is required for off-chain contact verification                   |
+| `test_RevertRegistrationWithEmptyCreditTier`             | Rejects empty credit tier                                                                               | Ensures minimum viable profile; lenders need categorical tier for basic eligibility checks           |
+| `test_RevertRegistrationWithInvalidAccountReferenceHash` | Rejects zero-hash account reference                                                                     | Account reference links on-chain identity to off-chain data store; essential for hybrid architecture |
+
+### Consent Management Tests
+
+| Test                                      | Description                                                                 | Why Critical                                                                               |
+| ----------------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `test_WorkflowConsentGrant`               | Verifies consent creation with borrower, lender, scopes, start/expiry times | Core workflow: borrowers must be able to delegate time-limited access to specific lenders  |
+| `test_WorkflowDataFetchWithConsentCheck`  | Validates `checkConsent` returns true for granted scopes, false otherwise   | Enforces access control; off-chain store relies on this to gate data release               |
+| `test_WorkflowRevocation`                 | Confirms `revokeAllConsents` invalidates all active consents to a lender    | Essential for user control: immediate revocation is a key privacy guarantee                |
+| `test_ConsentExpiration`                  | Verifies consents become invalid after expiry time                          | Time-bounded access prevents indefinite exposure; aligns with data minimization principles |
+| `test_MultipleLendersIndependentConsents` | Confirms revoking one lender's consent doesn't affect others                | Granular control: users manage each lender relationship independently                      |
+| `test_MultipleConsentsToSameLender`       | Validates multiple scope-specific consents to same lender                   | Supports fine-grained permissions; lender may need different scopes at different times     |
+| `test_LargeScaleGrantCreation`            | Stress test with 50 users × 50 lenders (7,350 consents)                     | Validates scalability and gas predictability under realistic multi-party load              |
+
+### Data Fetch and Access Control Tests
+
+| Test                                      | Description                                                   | Why Critical                                                                                         |
+| ----------------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `test_Workflow_DataFetchWithConsentCheck` | Full flow: register → grant → check → retrieve reference hash | Validates complete data access workflow from registration to off-chain data pointer retrieval        |
+| `test_Workflow_DataFetchWithoutConsent`   | Verifies `checkConsent` returns false when no consent exists  | Prevents unauthorized access; default-deny security model                                            |
+| `test_Workflow_EnforceScopeRestrictions`  | Confirms lenders can only access explicitly granted scopes    | Enforces principle of least privilege; scope-level access control                                    |
+| `test_ReadPublicAttributesWithoutConsent` | Public categorical tiers readable without consent             | Design decision: coarse-grained tiers (A/B/C) are intentionally public for basic eligibility queries |
+
+### Identity Update Tests
+
+| Test                                             | Description                                          | Why Critical                                                           |
+| ------------------------------------------------ | ---------------------------------------------------- | ---------------------------------------------------------------------- |
+| `test_UpdateCreditTierSuccessfully`              | Verifies selective field updates                     | Users must update financial status as circumstances change             |
+| `test_UpdateMultipleFields`                      | Confirms batch updates to multiple attributes        | Efficiency: single transaction for multiple changes                    |
+| `test_PartialUpdatePreservesOtherFields`         | Empty strings preserve existing values               | UX: users update only what changed without resubmitting entire profile |
+| `test_RevertUpdateForNonExistentIdentity`        | Prevents updates to unregistered addresses           | Data integrity: cannot modify non-existent records                     |
+| `test_MaintainDataIntegrityAfterMultipleUpdates` | Verifies data consistency through sequential updates | Ensures idempotent, predictable state transitions                      |
+
+### Audit Logging Tests
+
+| Test                                 | Description                                                 | Why Critical                                                         |
+| ------------------------------------ | ----------------------------------------------------------- | -------------------------------------------------------------------- |
+| `test_EndToEndFlow`                  | Verifies audit entries created for registration and updates | Immutable audit trail is core value proposition; proves data lineage |
+| `test_FailedAccessLogging`           | Logs unauthorized access attempts                           | Security: detects and records suspicious activity for forensics      |
+| `test_AuditLogAuthorizationRequired` | Prevents unauthorized contracts from writing logs           | Log integrity: only authorized contracts can append audit entries    |
+
+### End-to-End Workflow Tests
+
+| Test                         | Description                                                                     | Why Critical                                             |
+| ---------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| `test_EndToEndFlow`          | Complete flow: deploy → register → consent → access → update → audit            | Validates all components integrate correctly as a system |
+| `test_RevocationFlow`        | Full revocation lifecycle including `revokeConsentById` and `revokeAllConsents` | Confirms both revocation methods work end-to-end         |
+| `test_ConsentExpirationFlow` | Time-based consent invalidation via `vm.warp`                                   | Validates temporal access control enforcement            |
+
+## Gas Cost Summary
+
+### Deployment Costs
+
+| Contract       |           Gas | Cost (30 gwei, $3,500 ETH) |
+| -------------- | ------------: | -------------------------: |
+| AuditLog       |     1,535,406 |                      ~$161 |
+| ConsentManager |     1,356,516 |                      ~$142 |
+| CreditRegistry |     1,827,755 |                      ~$192 |
+| **Total**      | **4,719,677** |                  **~$495** |
+
+### Average Gas per Function
+
+| Function                   | Avg Gas | Est. Cost (USD) |
+| -------------------------- | ------: | --------------: |
+| registerIdentityAttributes | 244,734 |         ~$25.70 |
+| grantConsent               | 192,238 |         ~$20.20 |
+| checkConsent               | 406,272 |         ~$42.66 |
+| revokeConsentById          |  50,853 |          ~$5.34 |
+| revokeAllConsents          |  65,567 |          ~$6.89 |
+| updateIdentityAttributes   |  73,606 |          ~$7.73 |
+| getIdentityAttributes      |   5,260 |          ~$0.55 |
+| isConsentValid             |   1,220 |          ~$0.13 |
+
+# Deployment
+
+## Gas Usage Statistics
+
+The below metrics were collected from profiling tests using `npx hardhat test --gas-stats`. The large-scale test simulates **50 users** interacting with **50 lenders**, creating approximately **7,350 consent grants**, **2,450 consent checks**, and **7,350 revocations**.
+
+### Contract Deployment Costs
+
+| Contract       | Deployment Gas | Contract Size (bytes) |
+| -------------- | -------------: | --------------------: |
+| AuditLog       |      1,535,406 |                 6,832 |
+| ConsentManager |      1,356,516 |                 6,073 |
+| CreditRegistry |      1,827,755 |                 8,619 |
+| **Total**      |  **4,719,677** |            **21,524** |
+
+### Per-Operation Gas Costs
+
+#### ConsentManager Operations
+
+| Function            | Min Gas | Average Gas | Median Gas | Max Gas | # Calls |
+| ------------------- | ------: | ----------: | ---------: | ------: | ------: |
+| grantConsent        | 191,852 |     192,238 |    192,080 | 232,053 |   7,370 |
+| checkConsent        |  26,731 |     406,272 |    410,168 | 766,064 |   2,476 |
+| revokeConsentById   |  50,830 |      50,853 |     50,854 |  50,854 |   7,351 |
+| revokeAllConsents   |  52,982 |      65,567 |     53,198 | 110,950 |       5 |
+| isConsentValid      |   1,098 |       1,220 |      1,220 |   1,229 |   7,359 |
+| getBorrowerConsents |   2,649 |      61,692 |     62,873 |  62,873 |      51 |
+| getScopes           |   1,697 |       1,906 |      1,906 |   2,114 |       2 |
+| consents (mapping)  |   1,840 |       1,840 |      1,840 |   1,840 |       3 |
+
+#### CreditRegistry Operations
+
+| Function                   | Min Gas | Average Gas | Median Gas | Max Gas | # Calls |
+| -------------------------- | ------: | ----------: | ---------: | ------: | ------: |
+| registerIdentityAttributes | 186,442 |     244,734 |    186,454 | 361,300 |      18 |
+| updateIdentityAttributes   |  37,499 |      73,606 |     37,595 | 200,832 |       5 |
+| getIdentityAttributes      |   5,260 |       5,260 |      5,260 |   5,260 |      10 |
+| hasIdentityAttributes      |     961 |       1,761 |        961 |   2,961 |       5 |
+| getAccountReferenceHash    |     851 |         851 |        851 |     851 |       3 |
+| setAuditLog                |  44,125 |      44,125 |     44,125 |  44,125 |       8 |
+| consentManager             |   2,748 |       2,748 |      2,748 |   2,748 |       1 |
+
+#### AuditLog Operations
+
+| Function        | Min Gas | Average Gas | Median Gas | Max Gas | # Calls |
+| --------------- | ------: | ----------: | ---------: | ------: | ------: |
+| authorizeLogger |  47,587 |      47,587 |     47,587 |  47,587 |       8 |
+| getAuditEntry   |   2,614 |       2,614 |      2,614 |   2,614 |       1 |
+| getLogsCount    |     440 |         440 |        440 |     440 |       1 |
+
+### Scalability Analysis (50 Users × 50 Lenders)
+
+| Metric                   | Value |
+| ------------------------ | ----: |
+| Total User-Lender Pairs  | 2,450 |
+| Consent Grants Created   | 7,370 |
+| Consent Checks Performed | 2,476 |
+| Consent Revocations      | 7,351 |
+| Validity Checks          | 7,359 |
+
+### Cost Estimation at Scale
+
+Assuming 30 gwei gas price and ETH at $3,500:
+
+| Operation               | Gas Used  | Cost (ETH) | Cost (USD) |
+| ----------------------- | --------- | ---------- | ---------- |
+| Full System Deployment  | 4,719,677 | 0.1416     | ~$495      |
+| Register Identity (avg) | 244,734   | 0.0073     | ~$25.70    |
+| Grant Consent (avg)     | 192,238   | 0.0058     | ~$20.20    |
+| Check Consent (avg)     | 406,272   | 0.0122     | ~$42.66    |
+| Revoke Consent (avg)    | 50,853    | 0.0015     | ~$5.34     |
+
+### Observations After 7,350+ Consent Operations
+
+1. **Consent Granting** scales linearly with constant gas per operation (~192k gas).
+2. **Consent Checking** dynamic cost based on the number of active consents to iterate through (26k–766k gas).
+3. **Revocation** at ~51k gas per consent, it is efficient & practical for users to manage access.
+4. **Read Operations** `(getIdentityAttributes, hasIdentityAttributes)` are inexpensive (~1k–5k gas), suitable for frequent verification queries.
