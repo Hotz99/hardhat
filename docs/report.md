@@ -16,11 +16,10 @@ The system defines the following roles:
 
 To address the problem statement, the system implements the following core functions:
 
-1.  **User Registration:** Users can register a digital identity using hashed attributes (e.g., email hash) to ensure privacy while maintaining uniqueness.
-2.  **Consent Management:** Users can grant granular, time-limited consent to specific Requesters for specific ~~data types~~ **identity attributes** (scopes).
-3.  **Consent Revocation:** Users have the ability to revoke previously granted consents at any time, immediately invalidating further access.
-4.  **Audit Logging:** Every access attempt to the off-chain data is logged on-chain. This includes both successful accesses (authorized) and failed attempts (unauthorized), creating an immutable audit trail.
-5.  **(TODO implement this) Incentivization:** The system includes a mechanism to reward users with tokens when they grant consent for data sharing.
+1. **User Registration:** Users can register a digital identity using hashed attributes (e.g., email hash) to ensure privacy while maintaining uniqueness.
+2. **Consent Management:** Users can grant granular, time-limited consent to specific Requesters for specific **identity attributes** (scopes).
+3. **Consent Revocation:** Users have the ability to revoke previously granted consents at any time, immediately invalidating further access.
+4. **Audit Logging:** Every access attempt to the off-chain data is logged on-chain. This includes both successful accesses (authorized) and failed attempts (unauthorized), creating an immutable audit trail.
 
 ## System Overview
 
@@ -165,6 +164,10 @@ Chain stores verifiable commitments; off-chain system stores the data itself.
 1. borrower signs a transaction calling `revokeAllConsentslender)`
 2. `ConsentManager` resolves instance with `consentId` & sets the `revoked` field to `true`
 3. subsequent checks for `consents[consentId]` resolve to `invalid`
+
+## Token Incentives
+
+Our system purposefully excludes a token-based reward mechanism for data sharing. The primary value proposition is **privacy preservation and transparency of the mechanism for credit verification**, not the monetization of personal data. Introducing financial rewards for granting consent could create perverse incentives, encouraging users to compromise their privacy for short-term gain, which undermines the platform's core mission of sovereign identity and controlled, minimal disclosure.
 
 # Testing
 
