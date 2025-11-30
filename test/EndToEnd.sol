@@ -250,7 +250,7 @@ contract EndToEndTest is Test {
         // Verify revocation via revokeAllConsents
         vm.startPrank(borrower);
         // Grant another consent
-        bytes32 consentId2 = consentManager.grantConsent(lender, consentScopes, 1 days);
+        bytes32 consentId2 = consentManager.grantConsent(lender, consentScopes, 2 days);
         vm.stopPrank();
         
         // Verify second consent is valid
