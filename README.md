@@ -1,11 +1,11 @@
 # Local development — Hardhat node, Ignition deploy, and Solidity tests
 
-This repository uses a local Hardhat node for development, Ignition modules for deployments, and Solidity tests under `test/*.sol` (Forge-style tests). The `test/ConsentManager.sol` file is included and exercises the ConsentManager workflows (grant, check, revoke, expiration, multiple lenders).
+This repository uses a local Hardhat node for development, Ignition modules for deployments, and Solidity tests under `test/` (Forge-style tests). The test suite includes `test/ConsentManager.t.sol`, `test/CreditRegistry.t.sol`, and `test/EndToEnd.sol`, which cover the core smart contract workflows.
 
 Prerequisites
 
-- Node.js >= 16 and npm
-- npx (comes with npm)
+- Bun and Node.js (for Hardhat compatibility)
+- `bunx` (comes with Bun)
 - Python 3.9+ for optional off-chain scripts (create a venv)
 - A running local Hardhat node for persistent local state when deploying
 
@@ -14,9 +14,9 @@ Install dependencies
 - Node deps (install everything from package.json):
 
 ```bash
-npm install
+bun install
 # or in CI for reproducible installs:
-# npm ci
+# bun install --frozen-lockfile
 ```
 
 - Python (optional off-chain scripts):
@@ -24,9 +24,7 @@ npm install
 ```bash
 python3 -m venv offchain_store/venv
 source offchain_store/venv/bin/activate
-pip install web3 eth-account
-# or, if provided:
-# pip install -r offchain_store/requirements.txt
+pip install -r offchain_store/requirements.txt
 ```
 
 Start a local Hardhat node
@@ -34,7 +32,7 @@ Start a local Hardhat node
 - In Terminal A:
 
 ```bash
-npx hardhat node
+bunx hardhat node
 ```
 
 Notes:
@@ -48,10 +46,10 @@ Deploy contracts with Ignition
 
 ```bash
 # Deploy a single module (example)
-npx hardhat ignition deploy ./ignition/modules/CreditRegistry.ts --network localhost
+bunx hardhat ignition deploy ./ignition/modules/CreditRegistry.ts --network localhost
 
 # Deploy all modules in the folder
-npx hardhat ignition deploy ./ignition/modules --network localhost
+bunx hardhat ignition deploy ./ignition/modules --network localhost
 ```
 
 Important:
@@ -62,30 +60,28 @@ Important:
 
 Run Solidity tests
 
-- Run all Solidity tests (the repo includes `test/ConsentManager.sol`):
+- Run all Solidity tests:
 
 ```bash
-npx hardhat test solidity
+bunx hardhat test solidity
 ```
 
-- With gas stats (plugin-dependent; try the double-dash if needed):
+- With gas stats:
 
 ```bash
-npx hardhat test solidity --gas-stats
-# or
-npx hardhat test solidity -- --gas-stats
+bunx hardhat test solidity --gas-stats
 ```
 
 - To run tests against the running local node:
 
 ```bash
-npx hardhat test solidity --network localhost
+bunx hardhat test solidity --network localhost
 ```
 
-About the provided Solidity test: test/ConsentManager.sol
+About the provided Solidity tests
 
-- Location: `test/ConsentManager.sol` (already in repo)
-- What it covers (selected tests):
+- Location: `test/`
+- `test/ConsentManager.t.sol`:
   - `test_WorkflowConsentGrant` — grantConsent, consents storage, isConsentValid
   - `test_WorkflowDataFetchWithConsentCheck` — checkConsent for granted vs non-granted scopes / wrong lender
   - `test_WorkflowRevocation` — revokeAllConsents and subsequent invalid checks
@@ -93,6 +89,8 @@ About the provided Solidity test: test/ConsentManager.sol
   - `test_MultipleLendersIndependentConsents` — independent consents and selective revocation
   - `test_ConsentExpiration` — time-warp to expiry and verify invalidation
   - `test_MultipleConsentsToSameLender` — multiple consents and unique consent IDs
+- `test/CreditRegistry.t.sol`: Covers creation, update, and retrieval of credit records.
+- `test/EndToEnd.sol`: Simulates a full interaction flow between all contracts.
 
 Troubleshooting & tips
 
@@ -100,25 +98,25 @@ Troubleshooting & tips
   - Python: `Web3.to_checksum_address(addr)`
   - JS/ethers: `ethers.utils.getAddress(addr)`
 - If tests/deploy fail after restarting node, redeploy or load saved deployment addresses.
-- `.gitignore` recommendation: ignore ephemeral local deployments (`/deployments/localhost/`) but consider committing network-specific folders (mainnet/goerli) if you want a shared record. Avoid committing private keys or secrets.
+- `.gitignore` recommendation: ignore ephemeral local deployments (`/ignition/deployments/chain-31337/`) but consider committing network-specific folders (mainnet/goerli) if you want a shared record. Avoid committing private keys or secrets.
 
 Example minimal workflow
 
 1. Terminal A:
 
 ```bash
-npx hardhat node
+bunx hardhat node
 ```
 
 2. Terminal B:
 
 ```bash
-npm install
-npx hardhat ignition deploy ./ignition/modules --network localhost
+bun install
+bunx hardhat ignition deploy ./ignition/modules --network localhost
 ```
 
 3. Terminal C:
 
 ```bash
-npx hardhat test solidity --network localhost
+bunx hardhat test solidity --network localhost
 ```

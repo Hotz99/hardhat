@@ -11,5 +11,8 @@
     "typescript": "~5.8.0",
     "viem": "^2.30.0"
   },
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@mermaid-js/mermaid-cli": "^11.12.0"
+  }
 }

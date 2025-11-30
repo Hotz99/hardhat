@@ -250,3 +250,18 @@ function getConsentDetails(bytes32 consentId) external view returns (...) {
 **Conclusion:** Solidity automatically generates getters for `public` state variables. Manual versions duplicate this, increasing bytecode size and deployment cost with no runtime or functional benefit. Callers pay the same gas to invoke the compiler-generated getters, so removing manual versions saves deployment gas with zero caller impact.
 
 Hence, we removed these.
+
+## Identity Registration Check: Preventing Sybil Attacks
+
+1.  **Goal**: Ensure a unique ID registers only once. Without a check, subsequent registrations would silently overwrite data. The goal is to make second registrations **fail and revert**, signaling that the identity already exists, thus preventing Sybil attacks.
+
+2.  **Mechanics**:
+    Solidity
+
+    ```solidity
+    require(consents[consentId].lender == address(0), "Consent already exists");
+    ```
+    *   **First Registration (Success)**: `consents[consentId].lender` is `address(0)`, `require` passes, and a non-zero address is assigned.
+    *   **Second Registration (Failure)**: `consents[consentId].lender` now holds an address, so the `require` fails, and the transaction **reverts** with "Consent already exists".
+
+3.  **Sybil Attack Mitigation**: This `require` statement transforms the function from an overwrite operation into a **register-once gate**. It explicitly reverts attempts to register the same identity twice, preventing attackers from receiving benefits multiple times.

@@ -143,15 +143,24 @@ contract ConsentManagerTest is Test {
         bytes32[] memory scopes1 = new bytes32[](1);
         scopes1[0] = scopeCreditScore;
 
+        bytes32[] memory scopes2 = new bytes32[](1);
+        scopes2[0] = scopeEmployment;
+
         vm.startPrank(borrower);
-        bytes32 consentId = consentManager.grantConsent(lender, scopes1, ONE_DAY);
+        bytes32 consentId1 = consentManager.grantConsent(lender, scopes1, ONE_DAY);
 
         // this should fail
         vm.expectRevert(bytes("Consent already exists"));
         bytes32 consentId2 = consentManager.grantConsent(lender, scopes1, ONE_DAY);
 
+        // similar consent, but with different scopes
+        bytes32 consentId3 = consentManager.grantConsent(lender, scopes2, ONE_DAY);
+
+        // similar consent, but with different duration
+        bytes32 consentId4 = consentManager.grantConsent(lender, scopes2, ONE_WEEK);
+
         (bytes32[] memory consentIds) = consentManager.getBorrowerConsents(borrower);
-        require(consentIds.length == 1);
+        require(consentIds.length == 3);
 
         vm.stopPrank();
 
@@ -286,5 +295,60 @@ contract ConsentManagerTest is Test {
         require(!consentManager.checkConsent(borrower, scopeIncome), "Should be revoked");
         require(!consentManager.checkConsent(borrower, scopeEmployment), "Should be revoked");
         vm.stopPrank();
+    }
+
+    
+    // ============================================
+    // PROFILING: LARGE SCALE GRANT CREATION
+    // ============================================ 
+    function test_LargeScaleGrantCreation() public {
+        for (uint256 i = 1; i < 51; i++) {
+            for (uint256 j = 1; j < 51; j++) {
+                if (i == j) {
+                    continue;
+                }
+
+                address _borrower = address(uint160(uint(keccak256(abi.encodePacked(i)))));
+                address _lender = address(uint160(uint(keccak256(abi.encodePacked(j)))));
+
+                vm.startPrank(_borrower);
+            
+                bytes32[] memory scopes1 = new bytes32[](1);
+                scopes1[0] = scopeCreditScore;
+                bytes32 consentId1 = consentManager.grantConsent(_lender, scopes1, ONE_DAY);
+                
+                bytes32[] memory scopes2 = new bytes32[](1);
+                scopes2[0] = scopeIncome;
+                bytes32 consentId2 = consentManager.grantConsent(_lender, scopes2, ONE_WEEK);
+                
+                bytes32[] memory scopes3 = new bytes32[](1);
+                scopes3[0] = scopeEmployment;
+                bytes32 consentId3 = consentManager.grantConsent(_lender, scopes3, ONE_DAY);
+                
+                vm.stopPrank();
+            }
+        }
+
+        for (uint i = 1; i < 51; i++) {
+            address _borrower = address(uint160(uint(keccak256(abi.encodePacked(i)))));
+            (bytes32[] memory consentIds) = consentManager.getBorrowerConsents(_borrower);            
+            require(consentIds.length > 0);
+
+            for (uint j = 1; j < 51; j++) {
+                if (i == j) { continue; }
+                address _lender = address(uint160(uint(keccak256(abi.encodePacked(j)))));
+                vm.startPrank(_lender);
+                consentManager.checkConsent(_borrower, scopeIncome);
+                vm.stopPrank();
+            }
+
+            for (uint j = 0; j < consentIds.length; j++) {
+                vm.startPrank(_borrower);
+                if (consentManager.isConsentValid(consentIds[j])) {
+                    consentManager.revokeConsentById(consentIds[j]);
+                }
+                vm.stopPrank();
+            }
+        }
     }
 }
