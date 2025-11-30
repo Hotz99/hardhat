@@ -125,10 +125,14 @@ contract ConsentManager {
                 lender,
                 scopes,
                 block.timestamp,
+                block.timestamp + durationSeconds,
                 block.number
             )
         );
-        
+
+        // A Consent has to have a lender that's not address(0)
+        // To make sure the Consent being created doesn't exist, we make sure it's lender is the default address(0)
+        require(consents[consentId].lender == address(0), "Consent already exists");
 
         consents[consentId] = Consent({
             borrower: msg.sender,
