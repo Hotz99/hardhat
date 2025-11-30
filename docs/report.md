@@ -177,14 +177,11 @@ The test suite validates all core platform functionality using Foundry's Solidit
 
 | Test Suite           | Tests Passing | Tests Failing | Total  |
 | -------------------- | :-----------: | :-----------: | :----: |
-| ConsentManager.t.sol |      10       |       0       |   10   |
-| CreditRegistry.t.sol |      19       |       1       |   20   |
-| EndToEnd.sol         |       4       |       3       |   7    |
-| **Total**            |    **33**     |     **4**     | **37** |
+| ConsentManager.t.sol |      8        |       0       |   8    |
+| CreditRegistry.t.sol |      24       |       0       |   24   |
+| EndToEnd.sol         |       8       |       0       |   8    |
+| **Total**            |    **40**     |     **0**     | **40** |
 
-<!-- TODO are log assertions valid in test context ? intuitively, `log` emission will be non-deterministic if we do not await for emission ? -->
-
-> **Note:** The 4 failing tests are related to event emission assertions (`log != expected log`), not functional failures.
 
 ## Tested Functionality and Design Rationale
 
@@ -263,13 +260,13 @@ The test suite validates all core platform functionality using Foundry's Solidit
 | Function                   | Avg Gas | Est. Cost (USD) |
 | -------------------------- | ------: | --------------: |
 | registerIdentityAttributes | 244,734 |         ~$25.70 |
-| grantConsent               | 192,238 |         ~$20.20 |
-| checkConsent               | 406,272 |         ~$42.66 |
+| grantConsent               | 192,221 |         ~$20.18 |
+| checkConsent               | 405,825 |         ~$42.61 |
 | revokeConsentById          |  50,853 |          ~$5.34 |
-| revokeAllConsents          |  65,567 |          ~$6.89 |
-| updateIdentityAttributes   |  73,606 |          ~$7.73 |
-| getIdentityAttributes      |   5,260 |          ~$0.55 |
-| isConsentValid             |   1,220 |          ~$0.13 |
+| revokeAllConsents          |  63,951 |          ~$6.71 |
+| updateIdentityAttributes   |  96,689 |         ~$10.15 |
+| getIdentityAttributes      |  17,260 |          ~$1.81 |
+| isConsentValid             |   7,219 |          ~$0.76 |
 
 # Deployment
 
@@ -296,44 +293,46 @@ The below metrics were collected from profiling tests using `bunx hardhat test -
 
 | Function            | Min Gas | Average Gas | Median Gas | Max Gas | # Calls |
 | ------------------- | ------: | ----------: | ---------: | ------: | ------: |
-| grantConsent        | 191,852 |     192,238 |    192,080 | 232,053 |   7,370 |
-| checkConsent        |  26,731 |     406,272 |    410,168 | 766,064 |   2,476 |
+| checkConsent        |  26,731 |     405,825 |    410,168 | 766,064 |   2,479 |
+| consents (mapping)  |  11,840 |      11,840 |     11,840 |  11,840 |       3 |
+| getBorrowerConsents |  10,649 |     352,045 |    358,873 | 358,873 |      51 |
+| getScopes           |   5,697 |       6,906 |      6,906 |   8,114 |       2 |
+| grantConsent        |  70,452 |     192,221 |    192,080 | 232,053 |   7,371 |
+| isConsentValid      |   5,098 |       7,219 |      7,220 |   7,229 |   7,361 |
+| revokeAllConsents   |  52,982 |      63,951 |     54,535 | 110,950 |       6 |
 | revokeConsentById   |  50,830 |      50,853 |     50,854 |  50,854 |   7,351 |
-| revokeAllConsents   |  52,982 |      65,567 |     53,198 | 110,950 |       5 |
-| isConsentValid      |   1,098 |       1,220 |      1,220 |   1,229 |   7,359 |
-| getBorrowerConsents |   2,649 |      61,692 |     62,873 |  62,873 |      51 |
-| getScopes           |   1,697 |       1,906 |      1,906 |   2,114 |       2 |
-| consents (mapping)  |   1,840 |       1,840 |      1,840 |   1,840 |       3 |
 
 #### CreditRegistry Operations
 
 | Function                   | Min Gas | Average Gas | Median Gas | Max Gas | # Calls |
 | -------------------------- | ------: | ----------: | ---------: | ------: | ------: |
-| registerIdentityAttributes | 186,442 |     244,734 |    186,454 | 361,300 |      18 |
-| updateIdentityAttributes   |  37,499 |      73,606 |     37,595 | 200,832 |       5 |
-| getIdentityAttributes      |   5,260 |       5,260 |      5,260 |   5,260 |      10 |
-| hasIdentityAttributes      |     961 |       1,761 |        961 |   2,961 |       5 |
-| getAccountReferenceHash    |     851 |         851 |        851 |     851 |       3 |
-| setAuditLog                |  44,125 |      44,125 |     44,125 |  44,125 |       8 |
 | consentManager             |   2,748 |       2,748 |      2,748 |   2,748 |       1 |
+| getAccountReferenceHash    |   2,851 |       2,851 |      2,851 |   2,851 |       4 |
+| getIdentityAttributes      |  17,260 |      17,260 |     17,260 |  17,260 |      11 |
+| hasIdentityAttributes      |   2,961 |       2,961 |      2,961 |   2,961 |       5 |
+| registerIdentityAttributes | 186,442 |     244,734 |    186,454 | 361,300 |      18 |
+| setAuditLog                |  44,125 |      44,125 |     44,125 |  44,125 |       8 |
+| updateIdentityAttributes   |  37,499 |      96,689 |     46,099 | 212,104 |       6 |
 
 #### AuditLog Operations
 
 | Function        | Min Gas | Average Gas | Median Gas | Max Gas | # Calls |
 | --------------- | ------: | ----------: | ---------: | ------: | ------: |
 | authorizeLogger |  47,587 |      47,587 |     47,587 |  47,587 |       8 |
-| getAuditEntry   |   2,614 |       2,614 |      2,614 |   2,614 |       1 |
-| getLogsCount    |     440 |         440 |        440 |     440 |       1 |
+| getAccessHistory│   8,233 │       8,233 │      8,233 │   8,233 │       1 |
+| getAuditEntry   |  14,614 |      14,614 |     14,614 |  14,614 |       2 |
+| getLogsCount    |   2,440 |       2,440 |      2,440 |   2,440 |       2 |
+| getRecentLogs   |  28,361 |      28,361 |     28,361 |  28,361 |       1 |
 
 ### Scalability Analysis (50 Users × 50 Lenders)
 
 | Metric                   | Value |
 | ------------------------ | ----: |
 | Total User-Lender Pairs  | 2,450 |
-| Consent Grants Created   | 7,370 |
-| Consent Checks Performed | 2,476 |
+| Consent Grants Created   | 7,371 |
+| Consent Checks Performed | 2,479 |
 | Consent Revocations      | 7,351 |
-| Validity Checks          | 7,359 |
+| Validity Checks          | 7,361 |
 
 ### Cost Estimation at Scale
 
@@ -343,8 +342,8 @@ Assuming 30 gwei gas price and ETH at $3,500:
 | ----------------------- | --------- | ---------- | ---------- |
 | Full System Deployment  | 4,719,677 | 0.1416     | ~$495      |
 | Register Identity (avg) | 244,734   | 0.0073     | ~$25.70    |
-| Grant Consent (avg)     | 192,238   | 0.0058     | ~$20.20    |
-| Check Consent (avg)     | 406,272   | 0.0122     | ~$42.66    |
+| Grant Consent (avg)     | 192,221   | 0.0058     | ~$20.18    |
+| Check Consent (avg)     | 405,825   | 0.0122     | ~$42.61    |
 | Revoke Consent (avg)    | 50,853    | 0.0015     | ~$5.34     |
 
 ### Observations After 7,350+ Consent Operations
@@ -352,4 +351,4 @@ Assuming 30 gwei gas price and ETH at $3,500:
 1. **Consent Granting** scales linearly with constant gas per operation (~192k gas).
 2. **Consent Checking** dynamic cost based on the number of active consents to iterate through (26k–766k gas).
 3. **Revocation** at ~51k gas per consent, it is efficient & practical for users to manage access.
-4. **Read Operations** `(getIdentityAttributes, hasIdentityAttributes)` are inexpensive (~1k–5k gas), suitable for frequent verification queries.
+4. **Read Operations** `(getIdentityAttributes, hasIdentityAttributes)` are inexpensive (~3k–17k gas), suitable for frequent verification queries.
