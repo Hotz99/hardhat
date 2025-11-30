@@ -285,7 +285,8 @@ contract CreditRegistryTest is Test {
             address storedLender,
             uint256 startBlockTime,
             uint256 expiryBlockTime,
-            bool isRevoked
+            bool isRevoked,
+            bool isValue
         ) = consentManager.consents(consentId);
 
         assertEq(storedBorrower, borrower);

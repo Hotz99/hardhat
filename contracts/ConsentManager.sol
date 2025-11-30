@@ -61,6 +61,7 @@ contract ConsentManager {
         uint256 startBlockTime;
         uint256 expiryBlockTime;
         bool isRevoked;
+        bool isValue;
     }
   
     // borrowerAddress => consentIds[]
@@ -93,7 +94,7 @@ contract ConsentManager {
     error ConsentAlreadyRevoked();
     error ConsentExpired();
     error ConsentNotFound();
-    
+
     /**
      * @notice Grant consent to a lender for multiple scopes and duration
      * @param lender Address of the lender receiving consent
@@ -140,7 +141,8 @@ contract ConsentManager {
             scopes: scopes,
             startBlockTime: startBlockTime,
             expiryBlockTime: expiryBlockTime,
-            isRevoked: false
+            isRevoked: false,
+            isValue: true
         });
         
         borrowerConsents[msg.sender].push(consentId);

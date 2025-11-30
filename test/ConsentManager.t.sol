@@ -52,7 +52,8 @@ contract ConsentManagerTest is Test {
             address storedLender,
             uint256 startTime,
             uint256 expiryTime,
-            bool isRevoked
+            bool isRevoked,
+            bool isValue
         ) = consentManager.consents(consentId);
         
         require(storedBorrower == borrower, "Borrower should match");
@@ -123,7 +124,7 @@ contract ConsentManagerTest is Test {
         vm.stopPrank();
         
         // 2. Verify ConsentManager set revoked field to true
-        (, , , , bool revoked) = consentManager.consents(consentId);
+        (, , , , bool revoked,) = consentManager.consents(consentId);
         require(revoked, "Consent revoked field should be true");
         
         // 3. Subsequent checks resolve to invalid
