@@ -177,10 +177,10 @@ The test suite validates all core platform functionality using Foundry's Solidit
 
 | Test Suite           | Tests Passing | Tests Failing | Total  |
 | -------------------- | :-----------: | :-----------: | :----: |
-| ConsentManager.t.sol |      8        |       0       |   8    |
+| ConsentManager.t.sol |      9        |       0       |   9    |
 | CreditRegistry.t.sol |      24       |       0       |   24   |
 | EndToEnd.sol         |       8       |       0       |   8    |
-| **Total**            |    **40**     |     **0**     | **40** |
+| **Total**            |    **41**     |     **0**     | **41** |
 
 
 ## Tested Functionality and Design Rationale
@@ -204,6 +204,8 @@ The test suite validates all core platform functionality using Foundry's Solidit
 | `test_WorkflowConsentGrant`               | Verifies consent creation with borrower, lender, scopes, start/expiry times | Core workflow: borrowers must be able to delegate time-limited access to specific lenders  |
 | `test_WorkflowDataFetchWithConsentCheck`  | Validates `checkConsent` returns true for granted scopes, false otherwise   | Enforces access control; off-chain store relies on this to gate data release               |
 | `test_WorkflowRevocation`                 | Confirms `revokeAllConsents` invalidates all active consents to a lender    | Essential for user control: immediate revocation is a key privacy guarantee                |
+| `test_DuplicatePrevention`                | Ensures identical borrower→lender consents cannot be created twice         | Prevents ID collisions and enforces one active consent per scope-duration pair             |
+| `test_FullWorkflowSingleLender`           | Runs full lifecycle: grant, validate, authorize, revoke, post-revocation   | End-to-end guarantee that all core consent operations behave correctly in sequence         |
 | `test_ConsentExpiration`                  | Verifies consents become invalid after expiry time                          | Time-bounded access prevents indefinite exposure; aligns with data minimization principles |
 | `test_MultipleLendersIndependentConsents` | Confirms revoking one lender's consent doesn't affect others                | Granular control: users manage each lender relationship independently                      |
 | `test_MultipleConsentsToSameLender`       | Validates multiple scope-specific consents to same lender                   | Supports fine-grained permissions; lender may need different scopes at different times     |
@@ -251,19 +253,19 @@ The test suite validates all core platform functionality using Foundry's Solidit
 | Contract       |           Gas | Cost (30 gwei, $3,500 ETH) |
 | -------------- | ------------: | -------------------------: |
 | AuditLog       |     1,535,406 |                      ~$161 |
-| ConsentManager |     1,356,516 |                      ~$142 |
+| ConsentManager |     1,419,830 |                      ~$149 |
 | CreditRegistry |     1,827,755 |                      ~$192 |
-| **Total**      | **4,719,677** |                  **~$495** |
+| **Total**      | **4,782,991** |                  **~$495** |
 
 ### Average Gas per Function
 
 | Function                   | Avg Gas | Est. Cost (USD) |
 | -------------------------- | ------: | --------------: |
 | registerIdentityAttributes | 244,734 |         ~$25.70 |
-| grantConsent               | 192,221 |         ~$20.18 |
-| checkConsent               | 405,825 |         ~$42.61 |
+| grantConsent               | 192,833 |         ~$20.25 |
+| checkConsent               | 405,830 |         ~$42.61 |
 | revokeConsentById          |  50,853 |          ~$5.34 |
-| revokeAllConsents          |  63,951 |          ~$6.71 |
+| revokeAllConsents          |  64,618 |          ~$6.78 |
 | updateIdentityAttributes   |  96,689 |         ~$10.15 |
 | getIdentityAttributes      |  17,260 |          ~$1.81 |
 | isConsentValid             |   7,219 |          ~$0.76 |
@@ -283,7 +285,7 @@ The below metrics were collected from profiling tests using `bunx hardhat test -
 | Contract       | Deployment Gas | Contract Size (bytes) |
 | -------------- | -------------: | --------------------: |
 | AuditLog       |      1,535,406 |                 6,832 |
-| ConsentManager |      1,356,516 |                 6,073 |
+| ConsentManager |      1,419,830 |                 6,368 |
 | CreditRegistry |      1,827,755 |                 8,619 |
 | **Total**      |  **4,719,677** |            **21,524** |
 
@@ -293,13 +295,13 @@ The below metrics were collected from profiling tests using `bunx hardhat test -
 
 | Function            | Min Gas | Average Gas | Median Gas | Max Gas | # Calls |
 | ------------------- | ------: | ----------: | ---------: | ------: | ------: |
-| checkConsent        |  26,731 |     405,825 |    410,168 | 766,064 |   2,479 |
+| checkConsent        |  26,731 |     405,830 |    410,168 | 766,064 |   2,479 |
 | consents (mapping)  |  11,840 |      11,840 |     11,840 |  11,840 |       3 |
-| getBorrowerConsents |  10,649 |     352,045 |    358,873 | 358,873 |      51 |
+| getBorrowerConsents |  10,649 |     345,480 |    358,873 | 358,873 |      52 |
 | getScopes           |   5,697 |       6,906 |      6,906 |   8,114 |       2 |
-| grantConsent        |  70,452 |     192,221 |    192,080 | 232,053 |   7,371 |
+| grantConsent        | 192,433 |     192,833 |    192,673 | 232,646 |   7,374 |
 | isConsentValid      |   5,098 |       7,219 |      7,220 |   7,229 |   7,361 |
-| revokeAllConsents   |  52,982 |      63,951 |     54,535 | 110,950 |       6 |
+| revokeAllConsents   |  52,982 |      64,618 |     55,461 | 110,950 |       6 |
 | revokeConsentById   |  50,830 |      50,853 |     50,854 |  50,854 |   7,351 |
 
 #### CreditRegistry Operations
@@ -329,10 +331,10 @@ The below metrics were collected from profiling tests using `bunx hardhat test -
 | Metric                   | Value |
 | ------------------------ | ----: |
 | Total User-Lender Pairs  | 2,450 |
-| Consent Grants Created   | 7,371 |
-| Consent Checks Performed | 2,479 |
-| Consent Revocations      | 7,351 |
-| Validity Checks          | 7,361 |
+| Consent Grants Created   | 7,350 |
+| Consent Checks Performed | 2,450 |
+| Consent Revocations      | 7,350 |
+| Validity Checks          | 7,350 |
 
 ### Cost Estimation at Scale
 
@@ -340,10 +342,10 @@ Assuming 30 gwei gas price and ETH at $3,500:
 
 | Operation               | Gas Used  | Cost (ETH) | Cost (USD) |
 | ----------------------- | --------- | ---------- | ---------- |
-| Full System Deployment  | 4,719,677 | 0.1416     | ~$495      |
+| Full System Deployment  | 4,782,991 | 0.1435     | ~$502.25   |
 | Register Identity (avg) | 244,734   | 0.0073     | ~$25.70    |
-| Grant Consent (avg)     | 192,221   | 0.0058     | ~$20.18    |
-| Check Consent (avg)     | 405,825   | 0.0122     | ~$42.61    |
+| Grant Consent (avg)     | 192,833   | 0.0058     | ~$20.25    |
+| Check Consent (avg)     | 405,830   | 0.0122     | ~$42.61    |
 | Revoke Consent (avg)    | 50,853    | 0.0015     | ~$5.34     |
 
 ### Observations After 7,350+ Consent Operations
