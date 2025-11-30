@@ -134,6 +134,36 @@ contract ConsentManagerTest is Test {
         vm.stopPrank();
         require(!checkResult, "checkConsent should return false after revocation");
     }
+
+    // ============================================
+    // WORKFLOW: DUPLICATE PREVENTION
+    // ============================================
+    function test_DuplicatePrevention() public {
+        bytes32[] memory scopes1 = new bytes32[](1);
+        scopes1[0] = scopeCreditScore;
+
+        bytes32[] memory scopes2 = new bytes32[](1);
+        scopes2[0] = scopeEmployment;
+
+        vm.startPrank(borrower);
+        bytes32 consentId1 = consentManager.grantConsent(lender, scopes1, ONE_DAY);
+
+        // this should fail
+        vm.expectRevert(bytes("Consent already exists"));
+        bytes32 consentId2 = consentManager.grantConsent(lender, scopes1, ONE_DAY);
+
+        // similar consent, but with different scopes
+        bytes32 consentId3 = consentManager.grantConsent(lender, scopes2, ONE_DAY);
+
+        // similar consent, but with different duration
+        bytes32 consentId4 = consentManager.grantConsent(lender, scopes2, ONE_WEEK);
+
+        (bytes32[] memory consentIds) = consentManager.getBorrowerConsents(borrower);
+        require(consentIds.length == 3);
+
+        vm.stopPrank();
+
+    }
     
     // ============================================
     // INTEGRATION TESTS
