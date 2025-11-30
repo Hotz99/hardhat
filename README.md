@@ -24,9 +24,7 @@ bun install
 ```bash
 python3 -m venv offchain_store/venv
 source offchain_store/venv/bin/activate
-pip install web3 eth-account
-# or, if provided:
-# pip install -r offchain_store/requirements.txt
+pip install -r offchain_store/requirements.txt
 ```
 
 Start a local Hardhat node
