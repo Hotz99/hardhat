@@ -24,14 +24,14 @@ import { ContractConfig } from "../services/ContractConfig"
 import { WalletService } from "../services/WalletService"
 import { ContractConfigLocal } from "./ContractConfigLocal"
 
-type ContractIdentityAttributes = readonly [
+type ContractIdentityAttributes = {
   address: Hex,
   emailHash: Hex,
   creditTier: string,
   incomeBracket: string,
   debtRatioBracket: string,
   lastUpdated: bigint
-]
+}
 
 /**
  * Viem-based implementation layer for IdentityService
@@ -69,7 +69,8 @@ export const IdentityServiceViemLayer = Layer.effect(
                 params.debtRatioBracket,
                 params.accountReferenceHash as Hex,
               ],
-              chain: null,
+              chain: walletClient.chain,
+              account: walletClient.account!,
             }),
           catch: (error) =>
             new ContractCallError({
@@ -111,7 +112,8 @@ export const IdentityServiceViemLayer = Layer.effect(
                 params.incomeBracket ?? currentIdentity.incomeBracket,
                 params.debtRatioBracket ?? currentIdentity.debtRatioBracket,
               ],
-              chain: null,
+              chain: walletClient.chain,
+              account: walletClient.account!,
             }),
           catch: (error) =>
             new ContractCallError({
@@ -176,10 +178,15 @@ export const IdentityServiceViemLayer = Layer.effect(
       })
 
     const getOption = (address: Address) =>
-      get(address).pipe(
-        Effect.map(Option.some),
+      Effect.gen(function* () {
+        const exists = yield* has(address)
+        if (!exists) {
+          return Option.none<IdentityAttributes>()
+        }
+        return Option.some(yield* get(address))
+      }).pipe(
         Effect.catchTag("IdentityNotFoundError", () =>
-          Effect.succeed(Option.none())
+          Effect.succeed(Option.none<IdentityAttributes>())
         )
       )
 

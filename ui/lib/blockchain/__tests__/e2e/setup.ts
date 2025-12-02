@@ -7,14 +7,18 @@
 import { Effect, Exit, Option, Schedule, Scope, pipe } from "effect"
 import { Command, CommandExecutor } from "@effect/platform"
 import { BunContext } from "@effect/platform-bun"
-import { createPublicClient, http } from "viem"
+import { createPublicClient, createWalletClient, http, type Hex } from "viem"
+import { privateKeyToAccount } from "viem/accounts"
 import { hardhat } from "viem/chains"
 
 const HARDHAT_URL = "http://127.0.0.1:8545"
+
+// Contract addresses from local deployment
+const AUDIT_LOG_ADDRESS = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
+const CREDIT_REGISTRY_ADDRESS = "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0"
+const HARDHAT_DEPLOYER_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" as Hex
 const PROJECT_ROOT = new URL("../../../../../", import.meta.url).pathname
 
-// Store process handle for cleanup
-let hardhatProcess: Option.Option<CommandExecutor.Process> = Option.none()
 
 const checkHardhatReady = Effect.tryPromise({
   try: async () => {
@@ -62,7 +66,8 @@ const startHardhatNode = Effect.gen(function* () {
   )
 
   // Start hardhat in background and keep process handle
-  hardhatProcess = yield* executor.start(command).pipe(Effect.map(Option.some))
+  const hardhatProcess = yield* executor.start(command)
+  yield* Effect.addFinalizer(() => hardhatProcess.kill("SIGTERM").pipe(Effect.ignoreLogged))
 
   yield* waitForHardhat
   yield* Effect.log("Hardhat node ready")
@@ -102,23 +107,63 @@ const deployContracts = Effect.gen(function* () {
   yield* Effect.log("All contracts deployed")
 })
 
+/**
+ * Set up contract links: AuditLog <-> CreditRegistry
+ * This needs to be done with the deployer account (Hardhat #0)
+ */
+const setupAuditLogLink = Effect.tryPromise({
+  try: async () => {
+    const deployerAccount = privateKeyToAccount(HARDHAT_DEPLOYER_KEY)
+    const deployerClient = createWalletClient({
+      account: deployerAccount,
+      chain: hardhat,
+      transport: http(HARDHAT_URL),
+    })
+
+    const publicClient = createPublicClient({
+      chain: hardhat,
+      transport: http(HARDHAT_URL),
+    })
+
+    const { AuditLogAbi, CreditRegistryAbi } = await import("../../contracts/abis")
+
+    // 1. Authorize CreditRegistry as a logger in AuditLog
+    const authHash = await deployerClient.writeContract({
+      address: AUDIT_LOG_ADDRESS as Hex,
+      abi: AuditLogAbi,
+      functionName: "authorizeLogger",
+      args: [CREDIT_REGISTRY_ADDRESS as Hex],
+    })
+    await publicClient.waitForTransactionReceipt({ hash: authHash })
+
+    // 2. Set AuditLog address in CreditRegistry
+    const setHash = await deployerClient.writeContract({
+      address: CREDIT_REGISTRY_ADDRESS as Hex,
+      abi: CreditRegistryAbi,
+      functionName: "setAuditLog",
+      args: [AUDIT_LOG_ADDRESS as Hex],
+    })
+    await publicClient.waitForTransactionReceipt({ hash: setHash })
+
+    console.log("AuditLog <-> CreditRegistry link established")
+  },
+  catch: (error) => new Error(`Failed to setup audit log link: ${error}`),
+})
+
 
 const testScope = Scope.make().pipe(Effect.runSync)
 const setupProgram = pipe(
   startHardhatNode,
   Effect.flatMap(() => deployContracts),
+  Effect.flatMap(() => setupAuditLogLink),
   Effect.provide(BunContext.layer),
   Scope.extend(testScope)
 )
 
 const teardownProgram = pipe(
   Effect.gen(function* () {
-    if (Option.isSome(hardhatProcess)) {
-      yield* Effect.log("Stopping Hardhat node...")
-      yield* hardhatProcess.value.kill("SIGTERM")
-      hardhatProcess = Option.none()
-      yield* Scope.close(testScope, Exit.void)
-    }
+    yield* Effect.log("Stopping Hardhat node...")
+    yield* Scope.close(testScope, Exit.void)
   }),
   Effect.provide(BunContext.layer),
 )

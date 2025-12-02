@@ -4,8 +4,8 @@
  * Requires Hardhat node running at http://127.0.0.1:8545
  */
 
-import { describe, it, expect, beforeAll } from "vitest"
-import { Effect, Layer, Schema } from "effect"
+import { describe, it, expect, beforeAll, assert } from "vitest"
+import { Effect, Exit, Layer, Option, Schema } from "effect"
 import { keccak256, toBytes, type Hex } from "viem"
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts"
 import { createWalletClient, http, parseEther } from "viem"
@@ -93,20 +93,26 @@ const generateFundedAccount = async (): Promise<{
   return { privateKey, address }
 }
 
+const infrastructure = Layer.provideMerge(ViemClientLive, ContractConfigLocal)
+
+const testLayer = Layer.mergeAll(
+  IdentityServiceViemLayer,
+  ConsentServiceViemLayer,
+  AuditServiceViemLayer
+)
 /**
  * Create a complete test layer for a private key
  */
 const createTestLayer = (privateKey: Hex, address: Address) => {
-  const infrastructure = Layer.provideMerge(ViemClientLive, ContractConfigLocal)
-  const walletLayer = TestWalletServiceLayer(privateKey, address).pipe(
-    Layer.provide(infrastructure)
+
+  // Merge wallet layer WITH infrastructure so both are provided together
+  // This ensures all services share the same ViemClient instance
+  const walletWithInfra = Layer.provideMerge(
+    TestWalletServiceLayer(privateKey, address),
+    infrastructure
   )
 
-  return Layer.mergeAll(
-    IdentityServiceViemLayer,
-    ConsentServiceViemLayer,
-    AuditServiceViemLayer
-  ).pipe(Layer.provideMerge(walletLayer), Layer.provide(infrastructure))
+  return Layer.provide(testLayer, walletWithInfra)
 }
 
 // ============================================================================
@@ -115,7 +121,7 @@ const createTestLayer = (privateKey: Hex, address: Address) => {
 
 describe("IdentityService E2E", () => {
   let testLayer: Layer.Layer<
-    IdentityService | ConsentService | AuditService | WalletService
+    IdentityService | ConsentService | AuditService
   >
   let testAddress: Address
 
@@ -213,6 +219,51 @@ describe("IdentityService E2E", () => {
     )
     expect(result).toBe(false)
   })
+
+  it("should get identity by address directly", async () => {
+    const program = Effect.gen(function* () {
+      const identity = yield* IdentityService
+      return yield* identity.get(testAddress)
+    })
+
+    const result = await Effect.runPromise(
+      program.pipe(Effect.provide(testLayer))
+    )
+    expect(result.userId).toBe(testAddress)
+    expect(result.creditTier).toBe("B") // Updated in previous test
+  })
+
+  it("should return Some for existing identity via getOption", async () => {
+    const program = Effect.gen(function* () {
+      const identity = yield* IdentityService
+      return yield* identity.getOption(testAddress)
+    })
+
+    const result = await Effect.runPromise(
+      program.pipe(Effect.provide(testLayer))
+    )
+    expect(Option.isSome(result)).toBe(true)
+    if (Option.isSome(result)) {
+      expect(result.value.userId).toBe(testAddress)
+    }
+  })
+
+  it("should return None for non-existent identity via getOption", async () => {
+    // Generate a fresh random address that definitely has no identity
+    const randomKey = generatePrivateKey()
+    const randomAccount = privateKeyToAccount(randomKey)
+    const randomAddress = decodeAddress(randomAccount.address)
+
+    const program = Effect.gen(function* () {
+      const identity = yield* IdentityService
+      return yield* identity.getOption(randomAddress)
+    })
+
+    const result = await Effect.runPromise(
+      program.pipe(Effect.provide(testLayer))
+    )
+    expect(Option.isNone(result)).toBe(true)
+  })
 })
 
 // ============================================================================
@@ -221,10 +272,10 @@ describe("IdentityService E2E", () => {
 
 describe("ConsentService E2E", () => {
   let borrowerLayer: Layer.Layer<
-    IdentityService | ConsentService | AuditService | WalletService
+    IdentityService | ConsentService | AuditService
   >
   let lenderLayer: Layer.Layer<
-    IdentityService | ConsentService | AuditService | WalletService
+    IdentityService | ConsentService | AuditService
   >
   let borrowerAddress: Address
   let lenderAddress: Address
@@ -353,6 +404,77 @@ describe("ConsentService E2E", () => {
     )
     expect(result.isRevoked).toBe(true)
   })
+
+  it("should get borrower consents directly by address", async () => {
+    const program = Effect.gen(function* () {
+      const consent = yield* ConsentService
+      return yield* consent.getBorrowerConsents(borrowerAddress)
+    })
+
+    const result = await Effect.runPromise(
+      program.pipe(Effect.provide(lenderLayer))
+    )
+    expect(Array.isArray(result)).toBe(true)
+    expect(result.length).toBeGreaterThanOrEqual(1)
+    expect(result.some((id) => id === consentId)).toBe(true)
+  })
+
+  it("should revoke all consents for a lender", async () => {
+    // First grant a new consent
+    const newConsentId = await Effect.runPromise(
+      Effect.gen(function* () {
+        const consent = yield* ConsentService
+        return yield* consent.grant({
+          lender: lenderAddress,
+          scopes: [SCOPES.DEBT_RATIO],
+          durationSeconds: BigInt(86400),
+        })
+      }).pipe(Effect.provide(borrowerLayer))
+    )
+
+    // Verify it's valid
+    const isValidBefore = await Effect.runPromise(
+      Effect.gen(function* () {
+        const consent = yield* ConsentService
+        return yield* consent.isValid(newConsentId)
+      }).pipe(Effect.provide(borrowerLayer))
+    )
+    expect(isValidBefore).toBe(true)
+
+    // Revoke all consents for lender
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const consent = yield* ConsentService
+        yield* consent.revokeAll(lenderAddress)
+      }).pipe(Effect.provide(borrowerLayer))
+    )
+
+    // Verify it's no longer valid
+    const isValidAfter = await Effect.runPromise(
+      Effect.gen(function* () {
+        const consent = yield* ConsentService
+        return yield* consent.isValid(newConsentId)
+      }).pipe(Effect.provide(borrowerLayer))
+    )
+    expect(isValidAfter).toBe(false)
+  })
+
+  it("should fail with ConsentNotFoundError for non-existent consent", async () => {
+    // Use a random bytes32 that doesn't correspond to any consent
+    const fakeConsentId = keccak256(toBytes("non-existent-consent-id")) as Bytes32
+
+    const program = Effect.gen(function* () {
+      const consent = yield* ConsentService
+      return yield* consent.getConsent(fakeConsentId)
+    })
+
+    const result = await Effect.runPromiseExit(
+      program.pipe(Effect.provide(borrowerLayer))
+    )
+
+    assert(Exit.isFailure(result), "Expected failure for non-existent consent")
+    expect(String(result.cause)).toContain("ConsentNotFoundError")
+  })
 })
 
 // ============================================================================
@@ -361,53 +483,135 @@ describe("ConsentService E2E", () => {
 
 describe("AuditService E2E", () => {
   let testLayer: Layer.Layer<
-    IdentityService | ConsentService | AuditService | WalletService
+    IdentityService | ConsentService | AuditService
   >
+  let testAddress: Address
+  let initialLogsCount: bigint
 
   beforeAll(async () => {
+    // Contract links are set up in global setup (setup.ts)
+
+    // Create test account
     const account = await generateFundedAccount()
     testLayer = createTestLayer(account.privateKey, account.address)
+    testAddress = account.address
+
+    // Get initial logs count
+    initialLogsCount = await Effect.runPromise(
+      Effect.gen(function* () {
+        const audit = yield* AuditService
+        return yield* audit.getLogsCount
+      }).pipe(Effect.provide(testLayer))
+    )
+
+    // Register identity - this creates an audit entry
+    const emailHash = keccak256(toBytes("audit-test@example.com")) as Bytes32
+    const accountRefHash = keccak256(toBytes("audit-test-ref")) as Bytes32
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const identity = yield* IdentityService
+        yield* identity.register({
+          emailHash,
+          creditTier: "B",
+          incomeBracket: "75k-100k",
+          debtRatioBracket: "10-20%",
+          accountReferenceHash: accountRefHash,
+        })
+      }).pipe(Effect.provide(testLayer))
+    )
   })
 
-  it("should get logs count", async () => {
-    const program = Effect.gen(function* () {
-      const audit = yield* AuditService
-      return yield* audit.getLogsCount
-    })
-
+  it("should get logs count (increased after registration)", async () => {
     const result = await Effect.runPromise(
-      program.pipe(Effect.provide(testLayer))
+      Effect.gen(function* () {
+        const audit = yield* AuditService
+        return yield* audit.getLogsCount
+      }).pipe(Effect.provide(testLayer))
     )
 
     expect(typeof result).toBe("bigint")
-    expect(result).toBeGreaterThanOrEqual(BigInt(0))
+    expect(result).toBeGreaterThan(initialLogsCount)
   })
 
-  it("should get recent logs", async () => {
-    const program = Effect.gen(function* () {
-      const audit = yield* AuditService
-      return yield* audit.getRecentLogs(BigInt(10))
-    })
-
+  it("should get recent logs with actual entries", async () => {
     const result = await Effect.runPromise(
-      program.pipe(Effect.provide(testLayer))
+      Effect.gen(function* () {
+        const audit = yield* AuditService
+        return yield* audit.getRecentLogs(BigInt(10))
+      }).pipe(Effect.provide(testLayer))
     )
 
     expect(Array.isArray(result)).toBe(true)
+    expect(result.length).toBeGreaterThan(0)
+
+    // Verify entry structure
+    const entry = result[0]
+    expect(typeof entry.entryId).toBe("bigint")
+    expect(typeof entry.accessorUserId).toBe("string")
+    expect(typeof entry.subjectUserId).toBe("string")
+    expect(typeof entry.hashedScope).toBe("string")
+    expect(typeof entry.unixTimestamp).toBe("bigint")
+    expect(typeof entry.eventType).toBe("number")
   })
 
-  it("should return empty for fresh account access history", async () => {
-    const program = Effect.gen(function* () {
-      const audit = yield* AuditService
-      return yield* audit.getOwnAccessHistory
-    })
-
+  it("should get entry by id", async () => {
     const result = await Effect.runPromise(
-      program.pipe(Effect.provide(testLayer))
+      Effect.gen(function* () {
+        const audit = yield* AuditService
+        const logsCount = yield* audit.getLogsCount
+        // Get the most recent entry (created by our registration)
+        return yield* audit.getEntry(logsCount - BigInt(1))
+      }).pipe(Effect.provide(testLayer))
+    )
+
+    expect(typeof result.entryId).toBe("bigint")
+    expect(result.accessorUserId).toBe(testAddress)
+    expect(result.subjectUserId).toBe(testAddress)
+    expect(typeof result.unixTimestamp).toBe("bigint")
+    // EventType 3 = IDENTITY_REGISTERED
+    expect(result.eventType).toBe(3)
+  })
+
+  it("should get access history by address", async () => {
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const audit = yield* AuditService
+        return yield* audit.getAccessHistory(testAddress)
+      }).pipe(Effect.provide(testLayer))
     )
 
     expect(Array.isArray(result)).toBe(true)
-    expect(result.length).toBe(0)
+    expect(result.length).toBeGreaterThan(0)
+    expect(typeof result[0]).toBe("bigint")
+  })
+
+  it("should get own access history with entries", async () => {
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const audit = yield* AuditService
+        return yield* audit.getOwnAccessHistory
+      }).pipe(Effect.provide(testLayer))
+    )
+
+    expect(Array.isArray(result)).toBe(true)
+    expect(result.length).toBeGreaterThan(0)
+
+    // Verify it returns AuditEntry objects
+    const entry = result[0]
+    expect(entry.accessorUserId).toBe(testAddress)
+    expect(entry.subjectUserId).toBe(testAddress)
+  })
+
+  it("should fail for non-existent entry", async () => {
+    const result = await Effect.runPromiseExit(
+      Effect.gen(function* () {
+        const audit = yield* AuditService
+        return yield* audit.getEntry(BigInt(999999999))
+      }).pipe(Effect.provide(testLayer))
+    )
+
+    assert(Exit.isFailure(result), "Expected failure for non-existent entry")
   })
 })
 

@@ -17,7 +17,7 @@ import { ContractConfig } from "./ContractConfig"
  */
 export class WalletNotAvailableError extends Data.TaggedError(
   "WalletNotAvailableError"
-)<{}> {}
+) { }
 
 /**
  * Service for managing viem PublicClient and WalletClient instances.

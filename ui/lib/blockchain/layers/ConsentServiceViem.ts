@@ -65,7 +65,8 @@ export const ConsentServiceViemLayer = Layer.effect(
                 params.scopes as readonly Hex[],
                 params.durationSeconds,
               ],
-              chain: null,
+              chain: walletClient.chain,
+              account: walletClient.account!,
             }),
           catch: (error) =>
             new ContractCallError({
@@ -138,7 +139,8 @@ export const ConsentServiceViemLayer = Layer.effect(
               abi: consentManager.abi,
               functionName: "revokeConsentById",
               args: [consentId as Hex],
-              chain: null,
+              chain: walletClient.chain,
+              account: walletClient.account!,
             }),
           catch: (error) =>
             new ContractCallError({
@@ -179,7 +181,8 @@ export const ConsentServiceViemLayer = Layer.effect(
               abi: consentManager.abi,
               functionName: "revokeAllConsents",
               args: [lender as Hex],
-              chain: null,
+              chain: walletClient.chain,
+              account: walletClient.account!,
             }),
           catch: (error) =>
             new ContractCallError({

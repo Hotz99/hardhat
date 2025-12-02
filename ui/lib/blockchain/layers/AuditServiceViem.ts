@@ -20,13 +20,13 @@ import {
   WalletNotConnectedError,
 } from "../errors"
 
-type ContractAuditEntry = readonly [
-  accessorUserId: Hex,
-  subjectUserId: Hex,
-  hashedScope: Hex,
-  unixTimestamp: bigint,
+type ContractAuditEntry = {
+  accessorUserId: Hex
+  subjectUserId: Hex
+  hashedScope: Hex
+  unixTimestamp: bigint
   eventType: number
-]
+}
 
 /**
  * Viem layer for AuditService - requires dependencies
@@ -63,16 +63,8 @@ export const AuditServiceViemLayer = Layer.effect(
           }),
       }).pipe(
         Effect.flatMap((result) => {
-          const [
-            accessorUserId,
-            subjectUserId,
-            hashedScope,
-            unixTimestamp,
-            eventType,
-          ] = result
-
           if (
-            accessorUserId ===
+            result.accessorUserId ===
             "0x0000000000000000000000000000000000000000"
           ) {
             return Effect.fail(
@@ -83,11 +75,11 @@ export const AuditServiceViemLayer = Layer.effect(
           return Effect.succeed(
             new AuditEntry({
               entryId,
-              accessorUserId: accessorUserId as Address,
-              subjectUserId: subjectUserId as Address,
-              hashedScope: hashedScope as Bytes32,
-              unixTimestamp,
-              eventType: Number(eventType),
+              accessorUserId: result.accessorUserId as Address,
+              subjectUserId: result.subjectUserId as Address,
+              hashedScope: result.hashedScope as Bytes32,
+              unixTimestamp: result.unixTimestamp,
+              eventType: Number(result.eventType),
             })
           )
         })
@@ -152,23 +144,15 @@ export const AuditServiceViemLayer = Layer.effect(
         const logsCount = yield* getLogsCount
 
         return results.map((result, index) => {
-          const [
-            accessorUserId,
-            subjectUserId,
-            hashedScope,
-            unixTimestamp,
-            eventType,
-          ] = result
-
           const entryId = logsCount - BigInt(index) - BigInt(1)
 
           return new AuditEntry({
             entryId,
-            accessorUserId: accessorUserId as Address,
-            subjectUserId: subjectUserId as Address,
-            hashedScope: hashedScope as Bytes32,
-            unixTimestamp,
-            eventType: Number(eventType),
+            accessorUserId: result.accessorUserId as Address,
+            subjectUserId: result.subjectUserId as Address,
+            hashedScope: result.hashedScope as Bytes32,
+            unixTimestamp: result.unixTimestamp,
+            eventType: Number(result.eventType),
           })
         })
       })
