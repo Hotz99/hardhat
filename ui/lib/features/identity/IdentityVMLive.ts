@@ -92,12 +92,19 @@ const IdentityVMLayer = Layer.scoped(
       registry.set(submitState$, IdentitySubmitState.Submitting())
 
       pipe(
-        identityService.register({
-          emailHash: Schema.decodeSync(Bytes32)(data.emailHash as `0x${string}`),
-          creditTier: data.creditTier,
-          incomeBracket: data.incomeBracket,
-          debtRatioBracket: data.debtRatioBracket,
-          accountReferenceHash: Schema.decodeSync(Bytes32)("0x0000000000000000000000000000000000000000000000000000000000000000"),
+        Effect.gen(function* () {
+          // Generate accountReferenceHash from emailHash + salt
+          const emailHashBytes = data.emailHash as `0x${string}`
+          // Use emailHash with different prefix as account reference (simple derivation)
+          const accountRef = emailHashBytes.replace(/^0x.{2}/, "0xff") as `0x${string}`
+
+          yield* identityService.register({
+            emailHash: Schema.decodeSync(Bytes32)(emailHashBytes),
+            creditTier: data.creditTier,
+            incomeBracket: data.incomeBracket,
+            debtRatioBracket: data.debtRatioBracket,
+            accountReferenceHash: Schema.decodeSync(Bytes32)(accountRef),
+          })
         }),
         Effect.andThen(() => identityService.getOwn),
         Effect.tap((attrs) =>
@@ -115,7 +122,7 @@ const IdentityVMLayer = Layer.scoped(
             }))
           })
         ),
-        Effect.runSync
+        Effect.runPromise
       )
     }
 
@@ -148,7 +155,7 @@ const IdentityVMLayer = Layer.scoped(
             }))
           })
         ),
-        Effect.runSync
+        Effect.runPromise
       )
     }
 
@@ -171,7 +178,7 @@ const IdentityVMLayer = Layer.scoped(
             }))
           })
         ),
-        Effect.runSync
+        Effect.runPromise
       )
     }
 

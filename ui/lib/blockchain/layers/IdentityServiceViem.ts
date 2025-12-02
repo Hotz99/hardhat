@@ -69,7 +69,6 @@ export const IdentityServiceViemLayer = Layer.effect(
                 params.debtRatioBracket,
                 params.accountReferenceHash as Hex,
               ],
-              account: userAddress as Hex,
               chain: null,
             }),
           catch: (error) =>
@@ -112,7 +111,6 @@ export const IdentityServiceViemLayer = Layer.effect(
                 params.incomeBracket ?? currentIdentity.incomeBracket,
                 params.debtRatioBracket ?? currentIdentity.debtRatioBracket,
               ],
-              account: userAddress as Hex,
               chain: null,
             }),
           catch: (error) =>

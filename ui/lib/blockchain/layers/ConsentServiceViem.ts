@@ -54,15 +54,6 @@ export const ConsentServiceViemLayer = Layer.effect(
           )
         )
 
-        const addresses = yield* Effect.tryPromise({
-          try: () => walletClient.getAddresses(),
-          catch: (error) =>
-            new ContractCallError({
-              contract: "ConsentManager",
-              method: "grantConsent",
-              reason: `Failed to get addresses: ${error instanceof Error ? error.message : String(error)}`,
-            }),
-        })
         const hash = yield* Effect.tryPromise({
           try: () =>
             walletClient.writeContract({
@@ -74,7 +65,6 @@ export const ConsentServiceViemLayer = Layer.effect(
                 params.scopes as readonly Hex[],
                 params.durationSeconds,
               ],
-              account: addresses[0],
               chain: null,
             }),
           catch: (error) =>
@@ -141,16 +131,6 @@ export const ConsentServiceViemLayer = Layer.effect(
           )
         )
 
-        const addresses = yield* Effect.tryPromise({
-          try: () => walletClient.getAddresses(),
-          catch: (error) =>
-            new ContractCallError({
-              contract: "ConsentManager",
-              method: "revokeConsentById",
-              reason: `Failed to get addresses: ${error instanceof Error ? error.message : String(error)}`,
-            }),
-        })
-
         const hash = yield* Effect.tryPromise({
           try: () =>
             walletClient.writeContract({
@@ -158,7 +138,6 @@ export const ConsentServiceViemLayer = Layer.effect(
               abi: consentManager.abi,
               functionName: "revokeConsentById",
               args: [consentId as Hex],
-              account: addresses[0],
               chain: null,
             }),
           catch: (error) =>
@@ -193,16 +172,6 @@ export const ConsentServiceViemLayer = Layer.effect(
           )
         )
 
-        const addresses = yield* Effect.tryPromise({
-          try: () => walletClient.getAddresses(),
-          catch: (error) =>
-            new ContractCallError({
-              contract: "ConsentManager",
-              method: "revokeAllConsents",
-              reason: `Failed to get addresses: ${error instanceof Error ? error.message : String(error)}`,
-            }),
-        })
-
         const hash = yield* Effect.tryPromise({
           try: () =>
             walletClient.writeContract({
@@ -210,7 +179,6 @@ export const ConsentServiceViemLayer = Layer.effect(
               abi: consentManager.abi,
               functionName: "revokeAllConsents",
               args: [lender as Hex],
-              account: addresses[0],
               chain: null,
             }),
           catch: (error) =>

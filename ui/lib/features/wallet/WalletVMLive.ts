@@ -31,6 +31,7 @@ const WalletVMLayer = Layer.scoped(
       registry.set(state$, WalletState.Connecting())
       Effect.runPromise(
         walletService.connect.pipe(
+          Effect.tap((_) => walletService.ensureCorrectNetwork),
           Effect.match({
             onFailure: () => registry.set(state$, WalletState.Disconnected()),
             onSuccess: (fullAddress) => registry.set(state$, WalletState.Connected({
