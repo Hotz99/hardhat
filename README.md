@@ -1,5 +1,7 @@
 # Credo — dID Credit Verification System
 
+Credo is a decentralized identity and credit verification system built on blockchain, empowering users with control over their data and consent. For a detailed overview, refer to the [Formal Report](docs/credo.pdf).
+
 This repository uses a local Hardhat node for development, Ignition modules for deployments, and Solidity tests under `test/` (Forge-style tests). The test suite includes `test/ConsentManager.t.sol`, `test/CreditRegistry.t.sol`, and `test/EndToEnd.sol`, which cover the core smart contract workflows.
 
 Prerequisites
