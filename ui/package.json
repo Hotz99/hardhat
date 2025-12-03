@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "concurrently -k -n \"hardhat,ui\" -c \"yellow,cyan\" \"cd .. && npx hardhat node\" \"bun scripts/dev-setup.ts && next dev\"",
+    "dev:next": "next dev",
+    "dev:setup": "bun scripts/dev-setup.ts",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -13,6 +15,7 @@
   "dependencies": {
     "@effect-atom/atom": "^0.4.6",
     "@effect-atom/atom-react": "^0.4.1",
+    "@effect/cli": "^0.72.1",
     "@effect/platform": "^0.93.6",
     "@effect/platform-bun": "^0.86.0",
     "@hookform/resolvers": "^5.2.2",
@@ -53,6 +56,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitest/coverage-v8": "^4.0.14",
+    "concurrently": "^9.2.1",
     "eslint": "^9",
     "eslint-config-next": "16.0.6",
     "tailwindcss": "^4",
