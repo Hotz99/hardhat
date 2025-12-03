@@ -25,3 +25,11 @@
 venv
 
 .DS_Store
+
+# Foundry
+/out
+/broadcast
+/cache_forge
+
+# Generated Diagrams
+docs/generated_diagrams/
