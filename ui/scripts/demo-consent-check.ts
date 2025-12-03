@@ -14,16 +14,18 @@ import { Args, Command, Options } from "@effect/cli"
 import { BunContext, BunRuntime } from "@effect/platform-bun"
 import { FileSystem, Path } from "@effect/platform"
 import { Console, Data, Effect, Match, pipe } from "effect"
-import { createPublicClient, http, keccak256, toBytes, type Hex } from "viem"
+import { createPublicClient, createWalletClient, http, keccak256, parseEther, toBytes, type Hex } from "viem"
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts"
 import { hardhat } from "viem/chains"
-import { ConsentManagerAbi, CreditRegistryAbi } from "../lib/blockchain/contracts/abis"
+import { CreditRegistryAbi } from "../lib/blockchain/contracts/abis"
 
 const HARDHAT_URL = "http://127.0.0.1:8545"
 
 // Contract addresses (from local deployment)
-const CONSENT_MANAGER_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3" as Hex
 const CREDIT_REGISTRY_ADDRESS = "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0" as Hex
+
+// Hardhat account #0 - for funding the lender
+const HARDHAT_FUNDER_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" as Hex
 
 // Standard scopes
 const SCOPES = {
@@ -88,49 +90,60 @@ const writeLenderCache = (cache: LenderCache) =>
 // Blockchain Operations
 // ============================================================================
 
-const checkConsentForLender = (
+const fundLender = (lenderAddress: Hex) =>
+  Effect.tryPromise({
+    try: async () => {
+      const funderAccount = privateKeyToAccount(HARDHAT_FUNDER_KEY)
+      const funderClient = createWalletClient({
+        account: funderAccount,
+        chain: hardhat,
+        transport: http(HARDHAT_URL),
+      })
+
+      const hash = await funderClient.sendTransaction({
+        to: lenderAddress,
+        value: parseEther("1"),
+      })
+
+      await publicClient.waitForTransactionReceipt({ hash })
+    },
+    catch: (error) => new ConsentCheckError({ reason: `Failed to fund lender: ${error}` }),
+  })
+
+const requestDataAccess = (
+  lenderPrivateKey: Hex,
   borrowerAddress: Hex,
-  lenderAddress: Hex,
   scope: Hex
 ) =>
   Effect.tryPromise({
     try: async () => {
-      const consentIds = (await publicClient.readContract({
-        address: CONSENT_MANAGER_ADDRESS,
-        abi: ConsentManagerAbi,
-        functionName: "getBorrowerConsents",
-        args: [borrowerAddress],
-      })) as Hex[]
+      const lenderAccount = privateKeyToAccount(lenderPrivateKey)
+      const lenderClient = createWalletClient({
+        account: lenderAccount,
+        chain: hardhat,
+        transport: http(HARDHAT_URL),
+      })
 
-      for (const consentId of consentIds) {
-        const consentData = (await publicClient.readContract({
-          address: CONSENT_MANAGER_ADDRESS,
-          abi: ConsentManagerAbi,
-          functionName: "consents",
-          args: [consentId],
-        })) as [Hex, Hex, bigint, bigint, boolean, boolean]
+      // Call requestDataAccess - this logs to AuditLog
+      const hash = await lenderClient.writeContract({
+        address: CREDIT_REGISTRY_ADDRESS,
+        abi: CreditRegistryAbi,
+        functionName: "requestDataAccess",
+        args: [borrowerAddress, scope],
+      })
 
-        const [, lender, , expiryBlockTime, isRevoked] = consentData
+      const receipt = await publicClient.waitForTransactionReceipt({ hash })
 
-        if (
-          lender.toLowerCase() === lenderAddress.toLowerCase() &&
-          !isRevoked &&
-          BigInt(Date.now()) / 1000n < expiryBlockTime
-        ) {
-          const scopes = (await publicClient.readContract({
-            address: CONSENT_MANAGER_ADDRESS,
-            abi: ConsentManagerAbi,
-            functionName: "getScopes",
-            args: [consentId],
-          })) as Hex[]
+      // Simulate the call to get the return value
+      const authorized = await publicClient.simulateContract({
+        address: CREDIT_REGISTRY_ADDRESS,
+        abi: CreditRegistryAbi,
+        functionName: "requestDataAccess",
+        args: [borrowerAddress, scope],
+        account: lenderAccount,
+      })
 
-          if (scopes.some((s) => s.toLowerCase() === scope.toLowerCase())) {
-            return { hasConsent: true, consentId }
-          }
-        }
-      }
-
-      return { hasConsent: false, consentId: undefined }
+      return { hasConsent: authorized.result as boolean }
     },
     catch: (error) => new ConsentCheckError({ reason: String(error) }),
   })
@@ -196,7 +209,8 @@ const borrowerArg = Args.text({ name: "borrower" }).pipe(
   Args.withDescription("Borrower wallet address (e.g., 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266)")
 )
 
-const newLenderOption = Options.boolean("new-lender").pipe(
+const newLenderOption = Options.boolean("newLender").pipe(
+  Options.withAlias("n"),
   Options.withDescription("Generate a new lender address (default: reuse cached)")
 )
 
@@ -218,12 +232,12 @@ const demoCommand = Command.make(
         Effect.catchAll(() => Effect.succeed(null))
       )
 
-      const { lenderAddress } = yield* pipe(
+      const { lenderAddress, lenderPrivateKey } = yield* pipe(
         Match.value({ cachedLender, newLender }),
         Match.when({ cachedLender: Match.defined, newLender: false }, ({ cachedLender }) =>
           Effect.gen(function* () {
             yield* Console.log(`\n${colors.dim}Using cached lender address${colors.reset}`)
-            return { lenderAddress: cachedLender.address }
+            return { lenderAddress: cachedLender.address, lenderPrivateKey: cachedLender.privateKey }
           })
         ),
         Match.orElse(() =>
@@ -236,10 +250,14 @@ const demoCommand = Command.make(
               Effect.catchAll(() => Effect.void)
             )
             yield* Console.log(`\n${colors.yellow}Generated new lender address${colors.reset}`)
-            return { lenderAddress }
+            return { lenderAddress, lenderPrivateKey }
           })
         )
       )
+
+      // Fund the lender so they can make transactions
+      yield* Console.log(`${colors.dim}Funding lender wallet...${colors.reset}`)
+      yield* fundLender(lenderAddress)
 
       yield* Console.log("\n")
       yield* printBox("PARTICIPANTS", [
@@ -272,14 +290,14 @@ const demoCommand = Command.make(
         `Debt Ratio:     ${identity.debtRatioBracket}`,
       ], "info")
 
-      // Check consent for each scope
+      // Check consent for each scope (this creates audit log entries!)
       yield* Console.log("\n")
-      yield* Console.log(`${colors.yellow}━━━ CHECKING CONSENT FOR DATA ACCESS ━━━${colors.reset}\n`)
+      yield* Console.log(`${colors.yellow}━━━ REQUESTING DATA ACCESS (logged to AuditLog) ━━━${colors.reset}\n`)
 
       const scopeResults: { scope: string; hasConsent: boolean }[] = []
 
       for (const [scopeName, scopeHash] of Object.entries(SCOPES)) {
-        const result = yield* checkConsentForLender(borrowerAddress, lenderAddress, scopeHash as Hex)
+        const result = yield* requestDataAccess(lenderPrivateKey, borrowerAddress, scopeHash as Hex)
         scopeResults.push({ scope: scopeName, hasConsent: result.hasConsent })
 
         const status = result.hasConsent

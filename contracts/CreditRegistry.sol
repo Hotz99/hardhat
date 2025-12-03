@@ -252,4 +252,31 @@ contract CreditRegistry is ICreditRegistry {
     function hasIdentityAttributes(address user) external view returns (bool) {
         return identityAttributes[user].userId != address(0);
     }
+
+    /**
+     * @notice Request access to a borrower's data for a specific scope
+     * @dev Checks consent via ConsentManager and logs the access attempt to AuditLog
+     * @param borrower Address of the data owner
+     * @param scope The scope being requested (e.g., keccak256("credit_score"))
+     * @return authorized True if the caller has valid consent for the requested scope
+     */
+    function requestDataAccess(address borrower, bytes32 scope) external returns (bool authorized) {
+        // Check consent via ConsentManager (msg.sender is the lender)
+        authorized = consentManager.checkConsentFor(borrower, msg.sender, scope);
+
+        // Log to AuditLog if set
+        if (address(auditLog) != address(0)) {
+            auditLog.logEvent(IAuditLog.AuditEntry({
+                accessorUserId: msg.sender,
+                subjectUserId: borrower,
+                hashedScope: scope,
+                unixTimestamp: block.timestamp,
+                eventType: authorized
+                    ? IAuditLog.EventType.CONSENT_CHECKED
+                    : IAuditLog.EventType.DATA_REQUEST_REJECTED
+            }));
+        }
+
+        return authorized;
+    }
 }

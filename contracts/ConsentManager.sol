@@ -263,4 +263,35 @@ contract ConsentManager {
     function getBorrowerConsents(address borrower) external view returns (bytes32[] memory) {
         return borrowerConsents[borrower];
     }
+
+    /**
+     * @notice Check authorization for a specific lender to access borrower's data
+     * @dev Allows authorized contracts (like CreditRegistry) to check consent on behalf of a lender
+     * @param borrower Address of the data owner
+     * @param lender Address of the entity requesting access
+     * @param scope The scope being requested
+     * @return bool True if valid consent exists from borrower to lender with requested scope
+     */
+    function checkConsentFor(
+        address borrower,
+        address lender,
+        bytes32 scope
+    ) external view returns (bool) {
+        for (uint256 i = 0; i < borrowerConsents[borrower].length; i++) {
+            bytes32 consentId = borrowerConsents[borrower][i];
+            Consent storage consent = consents[consentId];
+
+            if (consent.lender != lender || consent.isRevoked || block.timestamp > consent.expiryBlockTime) {
+                continue;
+            }
+
+            for (uint256 j = 0; j < consent.scopes.length; j++) {
+                if (consent.scopes[j] == scope) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
 }
