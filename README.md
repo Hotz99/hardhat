@@ -1,4 +1,4 @@
-# Local development — Hardhat node, Ignition deploy, and Solidity tests
+# Credo — dID Credit Verification System
 
 This repository uses a local Hardhat node for development, Ignition modules for deployments, and Solidity tests under `test/` (Forge-style tests). The test suite includes `test/ConsentManager.t.sol`, `test/CreditRegistry.t.sol`, and `test/EndToEnd.sol`, which cover the core smart contract workflows.
 

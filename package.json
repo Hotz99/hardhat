@@ -1,4 +1,5 @@
 {
+  "name": "credo",
   "devDependencies": {
     "@nomicfoundation/hardhat-ignition": "^3.0.0",
     "@nomicfoundation/hardhat-toolbox-viem": "^5.0.0",
