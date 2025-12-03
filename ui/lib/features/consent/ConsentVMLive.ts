@@ -1,4 +1,5 @@
-import { Effect, Layer, pipe, Clock, DateTime } from "effect"
+import { Effect, Layer, pipe, Clock } from "effect"
+import { keccak256, toBytes } from "viem"
 import * as Atom from "@effect-atom/atom/Atom"
 import { AtomRegistry } from "@effect-atom/atom/Registry"
 import * as Loadable from "@/lib/Loadable"
@@ -249,15 +250,8 @@ const truncateAddress = (address: string): string => {
   return `${address.slice(0, 6)}...${address.slice(-4)}`
 }
 
-const hashScope = (scopeKey: string): Bytes32 => {
-  // Simple deterministic hash for demo purposes
-  // In production, use keccak256 or similar
-  const hash = Array.from(scopeKey)
-    .reduce((acc, char) => acc + char.charCodeAt(0), 0)
-    .toString(16)
-    .padStart(64, "0")
-  return `0x${hash}` as Bytes32
-}
+const hashScope = (scopeKey: string): Bytes32 =>
+  keccak256(toBytes(scopeKey)) as Bytes32
 
 // --- Export ---
 

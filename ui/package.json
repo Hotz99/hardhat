@@ -6,6 +6,7 @@
     "dev": "concurrently -k -n \"hardhat,ui\" -c \"yellow,cyan\" \"cd .. && npx hardhat node\" \"bun scripts/dev-setup.ts && next dev\"",
     "dev:next": "next dev",
     "dev:setup": "bun scripts/dev-setup.ts",
+    "demo:consent": "bun scripts/demo-consent-check.ts",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

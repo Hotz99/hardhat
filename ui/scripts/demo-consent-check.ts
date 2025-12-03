@@ -6,33 +6,24 @@
  * Shows consent denial/approval flow.
  *
  * Usage:
- *   bun scripts/demo-consent-check.ts <borrower-address> [--new]
- *
- * Options:
- *   --new    Generate a new lender address (default: reuse previous)
- *
- * Example:
- *   bun scripts/demo-consent-check.ts 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
- *   bun scripts/demo-consent-check.ts 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 --new
+ *   bun scripts/demo-consent-check.ts <borrower-address>
+ *   bun scripts/demo-consent-check.ts --new-lender <borrower-address>
  */
 
-import { createPublicClient, createWalletClient, http, keccak256, toBytes, type Hex } from "viem"
+import { Args, Command, Options } from "@effect/cli"
+import { BunContext, BunRuntime } from "@effect/platform-bun"
+import { FileSystem, Path } from "@effect/platform"
+import { Console, Data, Effect, Match, pipe } from "effect"
+import { createPublicClient, http, keccak256, toBytes, type Hex } from "viem"
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts"
 import { hardhat } from "viem/chains"
 import { ConsentManagerAbi, CreditRegistryAbi } from "../lib/blockchain/contracts/abis"
-import { existsSync, readFileSync, writeFileSync } from "fs"
-import { join } from "path"
-
-const LENDER_CACHE_FILE = join(import.meta.dir, ".demo-lender-cache.json")
 
 const HARDHAT_URL = "http://127.0.0.1:8545"
 
 // Contract addresses (from local deployment)
 const CONSENT_MANAGER_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3" as Hex
 const CREDIT_REGISTRY_ADDRESS = "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0" as Hex
-
-// Hardhat account #0 - for funding the lender
-const HARDHAT_FUNDER_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" as Hex
 
 // Standard scopes
 const SCOPES = {
@@ -46,206 +37,303 @@ const publicClient = createPublicClient({
   transport: http(HARDHAT_URL),
 })
 
-async function fundAccount(address: Hex, amount = "1") {
-  const funderAccount = privateKeyToAccount(HARDHAT_FUNDER_KEY)
-  const funderClient = createWalletClient({
-    account: funderAccount,
-    chain: hardhat,
-    transport: http(HARDHAT_URL),
-  })
+// ============================================================================
+// Errors
+// ============================================================================
 
-  const { parseEther } = await import("viem")
-  await funderClient.sendTransaction({
-    to: address,
-    value: parseEther(amount),
-  })
+class IdentityNotFoundError extends Data.TaggedError("IdentityNotFoundError")<{
+  readonly address: Hex
+}> {}
+
+class ConsentCheckError extends Data.TaggedError("ConsentCheckError")<{
+  readonly reason: string
+}> {}
+
+// ============================================================================
+// File System Operations
+// ============================================================================
+
+const CACHE_FILENAME = ".demo-lender-cache.json"
+
+interface LenderCache {
+  privateKey: Hex
+  address: Hex
 }
 
-async function checkConsentForLender(
+const readLenderCache = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  const pathService = yield* Path.Path
+
+  const cacheFilePath = pathService.join(import.meta.dir, CACHE_FILENAME)
+  const exists = yield* fs.exists(cacheFilePath)
+
+  if (!exists) {
+    return null
+  }
+
+  const content = yield* fs.readFileString(cacheFilePath)
+  return JSON.parse(content) as LenderCache
+})
+
+const writeLenderCache = (cache: LenderCache) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const pathService = yield* Path.Path
+
+    const cacheFilePath = pathService.join(import.meta.dir, CACHE_FILENAME)
+    yield* fs.writeFileString(cacheFilePath, JSON.stringify(cache, null, 2))
+  })
+
+// ============================================================================
+// Blockchain Operations
+// ============================================================================
+
+const checkConsentForLender = (
   borrowerAddress: Hex,
   lenderAddress: Hex,
   scope: Hex
-): Promise<{ hasConsent: boolean; consentId?: Hex }> {
-  // Get all consents for borrower
-  const consentIds = await publicClient.readContract({
-    address: CONSENT_MANAGER_ADDRESS,
-    abi: ConsentManagerAbi,
-    functionName: "getBorrowerConsents",
-    args: [borrowerAddress],
-  }) as Hex[]
-
-  for (const consentId of consentIds) {
-    // Get consent details - the ABI returns a tuple, not named fields
-    const consentData = await publicClient.readContract({
-      address: CONSENT_MANAGER_ADDRESS,
-      abi: ConsentManagerAbi,
-      functionName: "consents",
-      args: [consentId],
-    }) as [Hex, Hex, bigint, bigint, boolean, boolean]
-
-    const [borrower, lender, startBlockTime, expiryBlockTime, isRevoked, isValue] = consentData
-
-    // Check if this consent is for our lender and is valid
-    if (
-      lender.toLowerCase() === lenderAddress.toLowerCase() &&
-      !isRevoked &&
-      BigInt(Date.now()) / 1000n < expiryBlockTime
-    ) {
-      // Check if scope is included
-      const scopes = await publicClient.readContract({
+) =>
+  Effect.tryPromise({
+    try: async () => {
+      const consentIds = (await publicClient.readContract({
         address: CONSENT_MANAGER_ADDRESS,
         abi: ConsentManagerAbi,
-        functionName: "getScopes",
-        args: [consentId],
-      }) as Hex[]
+        functionName: "getBorrowerConsents",
+        args: [borrowerAddress],
+      })) as Hex[]
 
-      if (scopes.some(s => s.toLowerCase() === scope.toLowerCase())) {
-        return { hasConsent: true, consentId }
+      for (const consentId of consentIds) {
+        const consentData = (await publicClient.readContract({
+          address: CONSENT_MANAGER_ADDRESS,
+          abi: ConsentManagerAbi,
+          functionName: "consents",
+          args: [consentId],
+        })) as [Hex, Hex, bigint, bigint, boolean, boolean]
+
+        const [, lender, , expiryBlockTime, isRevoked] = consentData
+
+        if (
+          lender.toLowerCase() === lenderAddress.toLowerCase() &&
+          !isRevoked &&
+          BigInt(Date.now()) / 1000n < expiryBlockTime
+        ) {
+          const scopes = (await publicClient.readContract({
+            address: CONSENT_MANAGER_ADDRESS,
+            abi: ConsentManagerAbi,
+            functionName: "getScopes",
+            args: [consentId],
+          })) as Hex[]
+
+          if (scopes.some((s) => s.toLowerCase() === scope.toLowerCase())) {
+            return { hasConsent: true, consentId }
+          }
+        }
       }
+
+      return { hasConsent: false, consentId: undefined }
+    },
+    catch: (error) => new ConsentCheckError({ reason: String(error) }),
+  })
+
+const getIdentityAttributes = (address: Hex) =>
+  Effect.tryPromise({
+    try: async () => {
+      const attrs = (await publicClient.readContract({
+        address: CREDIT_REGISTRY_ADDRESS,
+        abi: CreditRegistryAbi,
+        functionName: "getIdentityAttributes",
+        args: [address],
+      })) as {
+        userId: Hex
+        emailHash: Hex
+        creditTier: string
+        incomeBracket: string
+        debtRatioBracket: string
+        lastUpdated: bigint
+      }
+      return attrs
+    },
+    catch: () => new IdentityNotFoundError({ address }),
+  })
+
+// ============================================================================
+// Display Helpers
+// ============================================================================
+
+type BoxStyle = "success" | "error" | "info"
+
+const colors = {
+  success: "\x1b[32m",
+  error: "\x1b[31m",
+  info: "\x1b[36m",
+  yellow: "\x1b[33m",
+  dim: "\x1b[90m",
+  reset: "\x1b[0m",
+} as const
+
+const printBox = (title: string, content: readonly string[], style: BoxStyle = "info") =>
+  Effect.gen(function* () {
+    const color = colors[style]
+    const reset = colors.reset
+
+    const maxLen = Math.max(title.length, ...content.map((l) => l.length)) + 4
+    const border = "═".repeat(maxLen)
+
+    yield* Console.log(`${color}╔${border}╗${reset}`)
+    yield* Console.log(`${color}║${reset}  ${title.padEnd(maxLen - 2)}${color}║${reset}`)
+    yield* Console.log(`${color}╠${border}╣${reset}`)
+    for (const line of content) {
+      yield* Console.log(`${color}║${reset}  ${line.padEnd(maxLen - 2)}${color}║${reset}`)
     }
-  }
+    yield* Console.log(`${color}╚${border}╝${reset}`)
+  })
 
-  return { hasConsent: false }
-}
+// ============================================================================
+// CLI Definition
+// ============================================================================
 
-async function getIdentityAttributes(address: Hex) {
-  try {
-    const attrs = await publicClient.readContract({
-      address: CREDIT_REGISTRY_ADDRESS,
-      abi: CreditRegistryAbi,
-      functionName: "getIdentityAttributes",
-      args: [address],
-    }) as {
-      userId: Hex
-      emailHash: Hex
-      creditTier: string
-      incomeBracket: string
-      debtRatioBracket: string
-      lastUpdated: bigint
-    }
-    return attrs
-  } catch {
-    return null
-  }
-}
+const borrowerArg = Args.text({ name: "borrower" }).pipe(
+  Args.withDescription("Borrower wallet address (e.g., 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266)")
+)
 
-function printBox(title: string, content: string[], style: "success" | "error" | "info" = "info") {
-  const colors = {
-    success: "\x1b[32m",
-    error: "\x1b[31m",
-    info: "\x1b[36m",
-  }
-  const reset = "\x1b[0m"
-  const color = colors[style]
+const newLenderOption = Options.boolean("new-lender").pipe(
+  Options.withDescription("Generate a new lender address (default: reuse cached)")
+)
 
-  const maxLen = Math.max(title.length, ...content.map(l => l.length)) + 4
-  const border = "═".repeat(maxLen)
+const demoCommand = Command.make(
+  "demo-consent-check",
+  { borrower: borrowerArg, newLender: newLenderOption },
+  ({ borrower, newLender }) =>
+    Effect.gen(function* () {
+      const borrowerAddress = borrower as Hex
 
-  console.log(`${color}╔${border}╗${reset}`)
-  console.log(`${color}║${reset}  ${title.padEnd(maxLen - 2)}${color}║${reset}`)
-  console.log(`${color}╠${border}╣${reset}`)
-  for (const line of content) {
-    console.log(`${color}║${reset}  ${line.padEnd(maxLen - 2)}${color}║${reset}`)
-  }
-  console.log(`${color}╚${border}╝${reset}`)
-}
+      yield* Console.log("\n")
+      yield* printBox("CONSENT-BASED DATA ACCESS DEMO", [
+        "Simulating a lender attempting to access borrower data",
+        "This demonstrates the consent verification system",
+      ], "info")
 
-async function main() {
-  const borrowerAddress = process.argv[2] as Hex
+      // Get or generate lender
+      const cachedLender = yield* readLenderCache.pipe(
+        Effect.catchAll(() => Effect.succeed(null))
+      )
 
-  if (!borrowerAddress) {
-    console.error("\x1b[31mUsage: bun scripts/demo-consent-check.ts <borrower-address>\x1b[0m")
-    console.error("\nExample:")
-    console.error("  bun scripts/demo-consent-check.ts 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
-    process.exit(1)
-  }
+      const { lenderAddress } = yield* pipe(
+        Match.value({ cachedLender, newLender }),
+        Match.when({ cachedLender: Match.defined, newLender: false }, ({ cachedLender }) =>
+          Effect.gen(function* () {
+            yield* Console.log(`\n${colors.dim}Using cached lender address${colors.reset}`)
+            return { lenderAddress: cachedLender.address }
+          })
+        ),
+        Match.orElse(() =>
+          Effect.gen(function* () {
+            const lenderPrivateKey = generatePrivateKey()
+            const lenderAccount = privateKeyToAccount(lenderPrivateKey)
+            const lenderAddress = lenderAccount.address as Hex
 
-  console.log("\n")
-  printBox("CONSENT-BASED DATA ACCESS DEMO", [
-    "Simulating a lender attempting to access borrower data",
-    "This demonstrates the consent verification system",
-  ], "info")
+            yield* writeLenderCache({ privateKey: lenderPrivateKey, address: lenderAddress }).pipe(
+              Effect.catchAll(() => Effect.void)
+            )
+            yield* Console.log(`\n${colors.yellow}Generated new lender address${colors.reset}`)
+            return { lenderAddress }
+          })
+        )
+      )
 
-  // Generate random lender
-  const lenderPrivateKey = generatePrivateKey()
-  const lenderAccount = privateKeyToAccount(lenderPrivateKey)
-  const lenderAddress = lenderAccount.address as Hex
+      yield* Console.log("\n")
+      yield* printBox("PARTICIPANTS", [
+        `Borrower: ${borrowerAddress}`,
+        `Lender:   ${lenderAddress}`,
+      ], "info")
 
-  console.log("\n")
-  printBox("PARTICIPANTS", [
-    `Borrower: ${borrowerAddress}`,
-    `Lender:   ${lenderAddress} (randomly generated)`,
-  ], "info")
+      // Check if borrower has identity
+      const identity = yield* getIdentityAttributes(borrowerAddress).pipe(
+        Effect.catchTag("IdentityNotFoundError", (e) =>
+          Effect.gen(function* () {
+            yield* Console.log("\n")
+            yield* printBox("ERROR", [
+              "Borrower has no registered identity!",
+              "",
+              "Register identity first at:",
+              "http://localhost:3000/identity",
+            ], "error")
+            return null
+          })
+        )
+      )
 
-  // Check if borrower has identity
-  const identity = await getIdentityAttributes(borrowerAddress)
+      if (!identity) return
 
-  if (!identity) {
-    console.log("\n")
-    printBox("ERROR", [
-      "Borrower has no registered identity!",
-      "",
-      "Register identity first at:",
-      "http://localhost:3000/identity",
-    ], "error")
-    process.exit(1)
-  }
+      yield* Console.log("\n")
+      yield* printBox("BORROWER IDENTITY EXISTS", [
+        `Credit Tier:    ${identity.creditTier}`,
+        `Income Bracket: ${identity.incomeBracket}`,
+        `Debt Ratio:     ${identity.debtRatioBracket}`,
+      ], "info")
 
-  console.log("\n")
-  printBox("BORROWER IDENTITY EXISTS", [
-    `Credit Tier:    ${identity.creditTier}`,
-    `Income Bracket: ${identity.incomeBracket}`,
-    `Debt Ratio:     ${identity.debtRatioBracket}`,
-  ], "info")
+      // Check consent for each scope
+      yield* Console.log("\n")
+      yield* Console.log(`${colors.yellow}━━━ CHECKING CONSENT FOR DATA ACCESS ━━━${colors.reset}\n`)
 
-  // Check consent for each scope
-  console.log("\n")
-  console.log("\x1b[33m━━━ CHECKING CONSENT FOR DATA ACCESS ━━━\x1b[0m\n")
+      const scopeResults: { scope: string; hasConsent: boolean }[] = []
 
-  const scopeResults: { scope: string; hasConsent: boolean }[] = []
+      for (const [scopeName, scopeHash] of Object.entries(SCOPES)) {
+        const result = yield* checkConsentForLender(borrowerAddress, lenderAddress, scopeHash as Hex)
+        scopeResults.push({ scope: scopeName, hasConsent: result.hasConsent })
 
-  for (const [scopeName, scopeHash] of Object.entries(SCOPES)) {
-    const result = await checkConsentForLender(borrowerAddress, lenderAddress, scopeHash as Hex)
-    scopeResults.push({ scope: scopeName, hasConsent: result.hasConsent })
+        const status = result.hasConsent
+          ? `${colors.success}✓ GRANTED${colors.reset}`
+          : `${colors.error}✗ DENIED${colors.reset}`
 
-    const status = result.hasConsent
-      ? "\x1b[32m✓ GRANTED\x1b[0m"
-      : "\x1b[31m✗ DENIED\x1b[0m"
+        yield* Console.log(`  ${scopeName.padEnd(15)} ${status}`)
+      }
 
-    console.log(`  ${scopeName.padEnd(15)} ${status}`)
-  }
+      const hasAnyConsent = scopeResults.some((r) => r.hasConsent)
 
-  const hasAnyConsent = scopeResults.some(r => r.hasConsent)
+      yield* Console.log("\n")
 
-  console.log("\n")
+      if (hasAnyConsent) {
+        const grantedScopes = scopeResults.filter((r) => r.hasConsent).map((r) => r.scope)
+        yield* printBox("ACCESS GRANTED", [
+          "The lender has valid consent for:",
+          ...grantedScopes.map((s) => `  - ${s}`),
+          "",
+          "Data can be accessed for these scopes.",
+        ], "success")
+      } else {
+        yield* printBox("ACCESS DENIED", [
+          "The lender has NO valid consent!",
+          "",
+          "To grant consent:",
+          "1. Go to http://localhost:3000/consent",
+          "2. Grant consent to the lender address:",
+          `   ${lenderAddress}`,
+          "3. Run this script again",
+        ], "error")
+      }
 
-  if (hasAnyConsent) {
-    const grantedScopes = scopeResults.filter(r => r.hasConsent).map(r => r.scope)
-    printBox("ACCESS GRANTED", [
-      "The lender has valid consent for:",
-      ...grantedScopes.map(s => `  - ${s}`),
-      "",
-      "Data can be accessed for these scopes.",
-    ], "success")
-  } else {
-    printBox("ACCESS DENIED", [
-      "The lender has NO valid consent!",
-      "",
-      "To grant consent:",
-      "1. Go to http://localhost:3000/consent",
-      "2. Grant consent to the lender address:",
-      `   ${lenderAddress}`,
-      "3. Run this script again",
-    ], "error")
-  }
+      // Show lender address for convenience
+      yield* Console.log("\n")
+      yield* Console.log(`${colors.dim}─────────────────────────────────────────────────────${colors.reset}`)
+      yield* Console.log(`${colors.dim}Lender address (copy this to grant consent):${colors.reset}`)
+      yield* Console.log(`${colors.yellow}${lenderAddress}${colors.reset}`)
+      yield* Console.log(`${colors.dim}─────────────────────────────────────────────────────${colors.reset}`)
+      yield* Console.log("\n")
+    })
+)
 
-  // Save lender address for convenience
-  console.log("\n")
-  console.log("\x1b[90m─────────────────────────────────────────────────────\x1b[0m")
-  console.log("\x1b[90mLender address (copy this to grant consent):\x1b[0m")
-  console.log(`\x1b[33m${lenderAddress}\x1b[0m`)
-  console.log("\x1b[90m─────────────────────────────────────────────────────\x1b[0m")
-  console.log("\n")
-}
+// ============================================================================
+// Run CLI
+// ============================================================================
 
-main().catch(console.error)
+const cli = Command.run(demoCommand, {
+  name: "demo-consent-check",
+  version: "1.0.0",
+})
+
+pipe(
+  cli(process.argv),
+  Effect.provide(BunContext.layer),
+  BunRuntime.runMain
+)
